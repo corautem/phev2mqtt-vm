@@ -575,7 +575,8 @@ start_vm() {
     fi
     
     # Installation complete
-    whiptail --title "Installation Complete!" \
+    whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Installation Complete!" \
         --msgbox "✓ VM ${VMID} created and started successfully!\n\nVM IP: ${vm_ip}\nWeb UI: http://${vm_ip}:8080\n\nThe VM is now performing first-boot setup (installing drivers, building phev2mqtt). This may take 5-10 minutes.\n\nOnce ready, open the web UI in your browser to:\n1. Set your web UI password\n2. Configure WiFi connection to your car\n3. Configure MQTT broker connection\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
         20 78
     
