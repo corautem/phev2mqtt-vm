@@ -152,6 +152,7 @@ advanced_settings_ram() {
     local ram_choice
     ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
         --title "Memory" \
+        --default-item "1024" \
         --menu "Amount of RAM (default: 1GB):" \
         14 50 4 \
         "512"  "512MB — not recommended" \
@@ -175,6 +176,34 @@ advanced_settings_ram() {
     fi
 
     VM_MEMORY="$ram_choice"
+}
+
+advanced_settings_disk() {
+    while true; do
+        local input
+        input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Disk Size" \
+            --inputbox "Enter VM disk size in GB (minimum 12, default 12):\nExamples: 12, 20, 32, 50" \
+            10 60 "${VM_DISK_SIZE%G}" \
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && die "Installation cancelled by user"
+
+        # Strip any trailing G the user may have typed
+        input="${input//G/}"
+        input="${input// /}"
+
+        # Validate: must be a positive integer >= 12
+        if ! [[ "$input" =~ ^[0-9]+$ ]] || [[ "$input" -lt 12 ]]; then
+            whiptail --backtitle "Proxmox VE Helper Scripts" \
+                --title "Invalid Disk Size" \
+                --msgbox "Disk size must be a number >= 12 GB." \
+                8 50
+            continue
+        fi
+
+        VM_DISK_SIZE="${input}G"
+        break
+    done
 }
 
 advanced_settings() {
@@ -202,16 +231,7 @@ advanced_settings() {
     advanced_settings_ram
 
     # Disk size
-    VM_DISK_SIZE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "Disk Size" \
-        --menu "VM disk size (default: 12GB):" \
-        12 50 4 \
-        "12G" "12GB (default minimum)" \
-        "20G" "20GB" \
-        "32G" "32GB" \
-        "50G" "50GB" \
-        3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+    advanced_settings_disk
 }
 
 select_vmid() {
@@ -406,7 +426,7 @@ show_confirmation() {
 # ============================================================================
 
 download_debian_image() {
-    log_info "Downloading Debian 12 cloud image..."
+    log_info "Downloading Debian 12 cloud image..." >&2
     
     local image_file="${TEMP_DIR}/debian-12-generic-amd64.qcow2"
     
@@ -415,16 +435,16 @@ download_debian_image() {
     fi
     
     # Verify checksum if available
-    log_info "Verifying image checksum..."
+    log_info "Verifying image checksum..." >&2
     local checksum_file="${TEMP_DIR}/SHA512SUMS"
     if wget -q -O "$checksum_file" "$DEBIAN_IMAGE_CHECKSUM_URL" 2>/dev/null; then
         if ! (cd "$TEMP_DIR" && sha512sum -c --ignore-missing "$checksum_file" &>/dev/null); then
-            log_warn "Checksum verification failed - proceeding anyway"
+            log_warn "Checksum verification failed - proceeding anyway" >&2
         else
-            log_info "Checksum verified successfully"
+            log_info "Checksum verified successfully" >&2
         fi
     else
-        log_warn "Could not download checksum file - skipping verification"
+        log_warn "Could not download checksum file - skipping verification" >&2
     fi
     
     echo "$image_file"
