@@ -251,6 +251,10 @@ step_install_go() {
     
     # Add to PATH for this script and system-wide
     export PATH=$PATH:/usr/local/go/bin
+    export GOPATH=/root/go
+    export GOMODCACHE=/root/go/pkg/mod
+    export GOCACHE=/root/.cache/go-build
+    mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
     echo 'export PATH=$PATH:/usr/local/go/bin' > /etc/profile.d/go.sh
     
     # Verify installation
@@ -280,7 +284,11 @@ step_build_phev2mqtt() {
     
     # Build binary
     export PATH=$PATH:/usr/local/go/bin
-    /usr/local/go/bin/go build -o phev2mqtt || die "Failed to build phev2mqtt"
+    export GOPATH=/root/go
+    export GOMODCACHE=/root/go/pkg/mod
+    export GOCACHE=/root/.cache/go-build
+    mkdir -p "$GOPATH" "$GOMODCACHE" "$GOCACHE"
+    /usr/local/go/bin/go build -o phev2mqtt || die "Failed to build phev2mqtt — check GOPATH and network connectivity"
     
     # Verify binary exists
     if [[ ! -f "./phev2mqtt" ]]; then
