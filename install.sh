@@ -35,7 +35,9 @@ YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
 # Global variables
+MODE="Simple"
 VMID=""
+VM_NAME="phev2mqtt"
 STORAGE=""
 USB_DEVICE=""
 USB_ID=""
@@ -124,27 +126,124 @@ Then re-run the installer."
 # ============================================================================
 
 show_welcome() {
-    whiptail --title "phev2mqtt Proxmox Installer v${SCRIPT_VERSION}" \
+    whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "phev2mqtt Proxmox Installer v${SCRIPT_VERSION}" \
         --msgbox "This installer will create a Debian 12 VM configured as a phev2mqtt gateway for Mitsubishi Outlander PHEV vehicles.\n\nWhat will be installed:\n• Debian 12 minimal VM (1 vCPU, 1GB RAM, 12GB disk)\n• USB WiFi adapter passthrough\n• phev2mqtt binary (built from source)\n• Web UI for configuration and management\n\nAfter installation, configure WiFi and MQTT via the web interface.\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
         20 78
 }
 
-select_vmid() {
-    # Get list of existing VMIDs
-    local existing_vmids
-    existing_vmids=$(qm list | awk 'NR>1 {print $1}' | sort -n)
+select_mode() {
+    MODE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Installation Mode" \
+        --menu "Select installation mode:" \
+        12 60 2 \
+        "Simple" "Use defaults (1 vCPU, 1GB RAM, 12GB disk, name: phev2mqtt)" \
+        "Advanced" "Customize VM settings" \
+        3>&1 1>&2 2>&3)
     
-    # Find next free VMID starting from 100
-    local suggested_vmid=100
-    while echo "$existing_vmids" | grep -q "^${suggested_vmid}$"; do
-        ((suggested_vmid++))
+    if [[ $? -ne 0 || -z "$MODE" ]]; then
+        die "Installation cancelled by user"
+    fi
+    
+    log_info "Selected mode: ${MODE}"
+}
+
+advanced_settings() {
+    while true; do
+        local choice
+        choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "SETTINGS" \
+            --menu "Choose settings to change:\n(current values shown)" \
+            20 70 6 \
+            "1" "VM Name:       ${VM_NAME}" \
+            "2" "CPU Cores:     ${VM_CORES}" \
+            "3" "RAM:           ${VM_MEMORY}MB" \
+            "4" "Disk Size:     ${VM_DISK_SIZE}" \
+            "5" "Review & Proceed" \
+            "6" "Cancel Installation" \
+            3>&1 1>&2 2>&3)
+        
+        if [[ $? -ne 0 ]]; then
+            die "Installation cancelled by user"
+        fi
+        
+        case "$choice" in
+            1)
+                VM_NAME=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "VM Name" \
+                    --inputbox "Enter VM name:" \
+                    10 60 "${VM_NAME}" \
+                    3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && die "Installation cancelled by user"
+                ;;
+            2)
+                local vcpu_choice
+                vcpu_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "CPU Configuration" \
+                    --menu "Number of vCPUs:" \
+                    12 50 4 \
+                    "1" "1 vCPU" \
+                    "2" "2 vCPUs" \
+                    "3" "3 vCPUs" \
+                    "4" "4 vCPUs" \
+                    3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && die "Installation cancelled by user"
+                VM_CORES="$vcpu_choice"
+                ;;
+            3)
+                local ram_choice
+                ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "Memory Configuration" \
+                    --menu "Amount of RAM:" \
+                    14 50 4 \
+                    "512" "512MB (not recommended)" \
+                    "1024" "1GB (default)" \
+                    "2048" "2GB" \
+                    "4096" "4GB" \
+                    3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && die "Installation cancelled by user"
+                if [[ "$ram_choice" == "512" ]]; then
+                    whiptail --backtitle "Proxmox VE Helper Scripts" \
+                        --title "Memory Warning" \
+                        --msgbox "512MB is not recommended. The installation may be slow or fail. Consider 1GB or more." 10 60
+                fi
+                VM_MEMORY="$ram_choice"
+                ;;
+            4)
+                local disk_choice
+                disk_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "Disk Configuration" \
+                    --menu "VM disk size:" \
+                    12 50 4 \
+                    "12G" "12GB (minimum)" \
+                    "20G" "20GB" \
+                    "32G" "32GB" \
+                    "50G" "50GB" \
+                    3>&1 1>&2 2>&3)
+                [[ $? -ne 0 ]] && die "Installation cancelled by user"
+                VM_DISK_SIZE="$disk_choice"
+                ;;
+            5)
+                break
+                ;;
+            6)
+                die "Installation cancelled by user"
+                ;;
+        esac
     done
+}
+
+select_vmid() {
+    # Get suggested VMID using pvesh
+    local suggested_vmid
+    suggested_vmid=$(pvesh get /cluster/nextid 2>/dev/null || echo "100")
     
     while true; do
         local input
-        input=$(whiptail --title "VM ID Selection" \
-            --inputbox "Enter VM ID for phev2mqtt VM.\n\nSuggested (next available): ${suggested_vmid}\n\nExisting VMIDs: $(echo "$existing_vmids" | tr '\n' ' ')" \
-            14 70 "${suggested_vmid}" 3>&1 1>&2 2>&3)
+        input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "VM ID Selection" \
+            --inputbox "Enter VM ID for phev2mqtt VM.\n\nSuggested (next available): ${suggested_vmid}" \
+            12 60 "${suggested_vmid}" 3>&1 1>&2 2>&3)
         
         # User cancelled
         if [[ $? -ne 0 ]]; then
@@ -153,13 +252,15 @@ select_vmid() {
         
         # Validate input is numeric
         if ! [[ "$input" =~ ^[0-9]+$ ]]; then
-            whiptail --title "Invalid Input" --msgbox "VM ID must be a number." 8 50
+            whiptail --backtitle "Proxmox VE Helper Scripts" \
+                --title "Invalid Input" --msgbox "VM ID must be a number." 8 50
             continue
         fi
         
-        # Check if VMID is in use
-        if echo "$existing_vmids" | grep -q "^${input}$"; then
-            whiptail --title "VMID In Use" --msgbox "VMID ${input} is already in use. Please choose a different ID." 8 60
+        # Check if VMID is already in use by checking config files
+        if [[ -f "/etc/pve/qemu-server/${input}.conf" ]] || [[ -f "/etc/pve/lxc/${input}.conf" ]]; then
+            whiptail --backtitle "Proxmox VE Helper Scripts" \
+                --title "VMID In Use" --msgbox "VMID ${input} is already in use. Please choose a different ID." 8 60
             continue
         fi
         
@@ -186,7 +287,8 @@ select_storage() {
         storage_menu+=("$name" "$type")
     done <<<"$storage_list"
     
-    STORAGE=$(whiptail --title "Storage Pool Selection" \
+    STORAGE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Storage Pool Selection" \
         --menu "Select storage pool for VM disk:" \
         18 70 10 \
         "${storage_menu[@]}" \
@@ -223,7 +325,7 @@ select_usb_adapter() {
         desc=$(echo "$line" | cut -d' ' -f7-)
         
         menu_items+=("$index" "${id} - ${desc}")
-        device_map+=("${bus}:${device}:${id}")
+        device_map+=("${bus}|${device}|${id}")
         ((index++))
     done <<<"$usb_devices"
     
@@ -232,7 +334,8 @@ select_usb_adapter() {
     fi
     
     local selection
-    selection=$(whiptail --title "USB WiFi Adapter Selection" \
+    selection=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "USB WiFi Adapter Selection" \
         --menu "Select the USB WiFi adapter to pass through (showing all USB devices):\n\nNote: The adapter will be dedicated to the VM." \
         22 78 12 \
         "${menu_items[@]}" \
@@ -245,9 +348,9 @@ select_usb_adapter() {
     # Get selected device info
     local device_info="${device_map[$((selection - 1))]}"
     local bus device id
-    bus=$(echo "$device_info" | cut -d: -f1)
-    device=$(echo "$device_info" | cut -d: -f2)
-    id=$(echo "$device_info" | cut -d: -f3)
+    bus=$(echo "$device_info" | cut -d'|' -f1)
+    device=$(echo "$device_info" | cut -d'|' -f2)
+    id=$(echo "$device_info" | cut -d'|' -f3)
     
     USB_DEVICE="${bus}-${device}"
     USB_ID="$id"
@@ -277,14 +380,16 @@ lookup_usb_driver() {
         USB_DRIVER=$(echo "$lookup_line" | awk '{print $3}')
         USB_NOTES=$(echo "$lookup_line" | cut -d' ' -f4-)
         
-        whiptail --title "Adapter Recognized" \
+        whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Adapter Recognized" \
             --msgbox "✓ Supported adapter detected!\n\nUSB ID: ${USB_ID}\nDriver: ${USB_DRIVER}\nInfo: ${USB_NOTES}\n\nThe driver will be installed automatically during VM setup." \
             14 70
     else
         USB_DRIVER="unknown"
         USB_NOTES="Unknown adapter"
         
-        if ! whiptail --title "Unknown Adapter" \
+        if ! whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Unknown Adapter" \
             --yesno "⚠ Adapter not in supported list.\n\nUSB ID: ${USB_ID}\n\nYou may need to install the driver manually after installation.\n\nProceed anyway?" \
             12 70; then
             die "Installation cancelled by user"
@@ -296,6 +401,7 @@ lookup_usb_driver() {
 
 show_confirmation() {
     local summary="VM Configuration Summary:\n\n"
+    summary+="VM Name: ${VM_NAME}\n"
     summary+="VM ID: ${VMID}\n"
     summary+="Storage: ${STORAGE}\n"
     summary+="CPU: ${VM_CORES} vCore(s)\n"
@@ -308,7 +414,8 @@ show_confirmation() {
     summary+="  Info: ${USB_NOTES}\n\n"
     summary+="Proceed with installation?"
     
-    if ! whiptail --title "Confirmation" --yesno "$summary" 22 70; then
+    if ! whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Confirmation" --yesno "$summary" 22 70; then
         die "Installation cancelled by user"
     fi
 }
@@ -354,7 +461,7 @@ create_vm() {
     
     # Create VM
     qm create "$VMID" \
-        --name "phev2mqtt" \
+        --name "${VM_NAME}" \
         --cores "$VM_CORES" \
         --memory "$VM_MEMORY" \
         --net0 "virtio,bridge=vmbr0" \
@@ -503,6 +610,12 @@ main() {
     
     # Interactive dialogs
     show_welcome
+    select_mode
+    
+    if [[ "$MODE" == "Advanced" ]]; then
+        advanced_settings
+    fi
+    
     select_vmid
     select_storage
     select_usb_adapter
