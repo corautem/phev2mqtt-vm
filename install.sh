@@ -108,8 +108,14 @@ check_dependencies() {
 
 check_snippets_storage() {
     # Check if local storage has snippets content type enabled
-    if ! pvesm status | grep "^local " | grep -q "snippets"; then
-        die "Local storage snippets not enabled. Enable it in Proxmox:\nDatacenter → Storage → local → Edit → Content → add Snippets"
+    if ! pvesm status --content snippets | grep -q "^local "; then
+        die "Snippets must be enabled on local storage — the installer uses this to pass the VM setup script to the VM via cloud-init.
+
+To fix this:
+  Proxmox UI → Datacenter → Storage → local → Edit
+  → Content → tick 'Snippets' → click OK
+
+Then re-run the installer."
     fi
 }
 
