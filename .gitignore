@@ -1,0 +1,13 @@
+# Internal specification — not for publication
+SPEC.md
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Editor
+.vscode/
+*.swp
+*.swo

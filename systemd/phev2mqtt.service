@@ -1,0 +1,17 @@
+[Unit]
+Description=phev2mqtt service
+After=network.target
+StartLimitIntervalSec=5
+
+[Service]
+Type=exec
+EnvironmentFile=-/etc/phev2mqtt-webui/phev2mqtt.env
+ExecStart=/usr/local/bin/phev2mqtt client mqtt -v=info --mqtt_server ${MQTT_SERVER} --mqtt_username ${MQTT_USERNAME} --mqtt_password ${MQTT_PASSWORD}
+Restart=always
+RestartSec=30s
+SyslogIdentifier=phev2mqtt
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target

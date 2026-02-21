@@ -1,0 +1,14 @@
+# Logrotate rules for phev2mqtt web UI logs; installed to /etc/logrotate.d/phev2mqtt-webui
+
+/var/log/phev2mqtt-webui/*.log {
+    size 20M
+    rotate 5
+    compress
+    delaycompress
+    missingok
+    notifempty
+    create 0640 root adm
+    postrotate
+        systemctl kill -s HUP phev2mqtt-webui.service
+    endscript
+}

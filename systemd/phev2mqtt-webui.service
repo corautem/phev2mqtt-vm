@@ -1,0 +1,19 @@
+[Unit]
+Description=phev2mqtt Web UI
+After=network.target phev2mqtt.service
+Wants=phev2mqtt.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/phev2mqtt-webui
+EnvironmentFile=-/etc/phev2mqtt-webui/webui.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/phev2mqtt-webui/venv/bin/python /opt/phev2mqtt-webui/app.py
+Restart=always
+RestartSec=10s
+SyslogIdentifier=phev2mqtt-webui
+StandardOutput=syslog
+StandardError=syslog
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Settings</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --text: #1e1f22;
+      --muted: #5a6069;
+      --accent: #1d6feb;
+      --border: #d8dde4;
+      --good: #1a7f37;
+      --warn: #b35900;
+      --critical: #b42318;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .page {
+      max-width: 980px;
+      margin: 32px auto 60px;
+      padding: 0 20px;
+    }
+
+    .nav {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    .nav-title {
+      font-weight: 700;
+      font-size: 18px;
+      letter-spacing: 0.2px;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 16px;
+      font-weight: 600;
+    }
+
+    .nav-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .btn {
+      padding: 8px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #ffffff;
+    }
+
+    .grid {
+      display: grid;
+      gap: 18px;
+      margin-top: 18px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+
+    .card h2 {
+      margin: 0 0 6px;
+      font-size: 18px;
+    }
+
+    .card p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .resource-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .resource {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #fbfcfd;
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--good);
+    }
+
+    .status-dot.warn {
+      background: var(--warn);
+    }
+
+    .status-dot.critical {
+      background: var(--critical);
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 14px;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .status {
+      margin-top: 10px;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #fbfcfd;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 10px 0 16px;
+    }
+
+    .slider-group {
+      display: grid;
+      gap: 12px;
+    }
+
+    .slider-row {
+      display: grid;
+      grid-template-columns: 1fr 140px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .footprint {
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    @media (max-width: 720px) {
+      .nav {
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      .nav-links,
+      .nav-actions {
+        width: 100%;
+        justify-content: space-between;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header class="nav">
+    <div class="nav-title">phev2mqtt</div>
+    <nav class="nav-links">
+      <a href="/settings">Settings</a>
+      <a href="/tools">Tools</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="btn" href="/logout">Logout</a>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="card">
+      <h2>Resource Monitor</h2>
+      <p>Live system usage with warning indicators.</p>
+      <div class="resource-bar">
+        <div class="resource">
+          <div>
+            <strong>Disk</strong><br />
+            12.3 GB / 20 GB
+          </div>
+          <span class="status-dot"></span>
+        </div>
+        <div class="resource">
+          <div>
+            <strong>RAM</strong><br />
+            420 MB / 1 GB
+          </div>
+          <span class="status-dot warn"></span>
+        </div>
+        <div class="resource">
+          <div>
+            <strong>CPU</strong><br />
+            22% sustained
+          </div>
+          <span class="status-dot"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <section class="card">
+        <h2>WiFi</h2>
+        <p>Connect to the vehicle WiFi or your local network.</p>
+        <div class="form-grid">
+          <div>
+            <label for="wifi-interface">Interface</label>
+            <select id="wifi-interface" name="wifi_interface">
+              <option>Choose interface</option>
+            </select>
+          </div>
+          <div>
+            <label>&nbsp;</label>
+            <button class="btn" type="button">Scan</button>
+          </div>
+          <div>
+            <label for="wifi-ssid">SSID</label>
+            <select id="wifi-ssid" name="wifi_ssid">
+              <option>Select network</option>
+            </select>
+          </div>
+          <div>
+            <label for="wifi-psk">Password</label>
+            <input id="wifi-psk" name="wifi_psk" type="password" />
+          </div>
+          <div class="toggle">
+            <input id="wifi-dhcp" name="wifi_dhcp" type="checkbox" checked />
+            <label for="wifi-dhcp">Use DHCP (automatic)</label>
+          </div>
+          <div>
+            <label for="wifi-ip">Manual IP</label>
+            <input id="wifi-ip" name="wifi_ip" type="text" placeholder="192.168.8.100" />
+          </div>
+          <div>
+            <label for="wifi-netmask">Netmask</label>
+            <input id="wifi-netmask" name="wifi_netmask" type="text" placeholder="255.255.255.0" />
+          </div>
+          <div>
+            <label for="wifi-gateway">Gateway</label>
+            <input id="wifi-gateway" name="wifi_gateway" type="text" placeholder="192.168.8.1" />
+          </div>
+          <div>
+            <label for="wifi-mac">MAC spoof</label>
+            <input id="wifi-mac" name="wifi_mac" type="text" placeholder="optional" />
+          </div>
+          <div>
+            <label for="wifi-region">WiFi region</label>
+            <select id="wifi-region" name="wifi_region">
+              <option value="">Select region</option>
+              <option value="US">US</option>
+              <option value="GB">GB</option>
+              <option value="EU">EU</option>
+            </select>
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="button">Save &amp; Connect</button>
+        </div>
+        <div class="status">Status: Not connected</div>
+      </section>
+
+      <section class="card">
+        <h2>MQTT</h2>
+        <p>Configure the broker used by phev2mqtt.</p>
+        <div class="form-grid">
+          <div>
+            <label for="mqtt-server">Server</label>
+            <input id="mqtt-server" name="mqtt_server" type="text" placeholder="192.168.1.10" />
+          </div>
+          <div>
+            <label for="mqtt-port">Port</label>
+            <input id="mqtt-port" name="mqtt_port" type="number" value="1883" />
+          </div>
+          <div>
+            <label for="mqtt-user">Username</label>
+            <input id="mqtt-user" name="mqtt_username" type="text" />
+          </div>
+          <div>
+            <label for="mqtt-pass">Password</label>
+            <input id="mqtt-pass" name="mqtt_password" type="password" />
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="button">Save MQTT</button>
+        </div>
+        <div class="status">Status: Not connected</div>
+      </section>
+
+      <section class="card">
+        <h2>phev2mqtt Service</h2>
+        <p>Control the phev2mqtt background service.</p>
+        <div class="actions">
+          <button class="btn" type="button">Start</button>
+          <button class="btn" type="button">Stop</button>
+          <button class="btn" type="button">Restart</button>
+        </div>
+        <div class="status">Status: Unknown</div>
+      </section>
+
+      <section class="card">
+        <h2>Web UI Password</h2>
+        <p>Change the password used to access this web UI.</p>
+        <div class="form-grid">
+          <div>
+            <label for="current-password">Current password</label>
+            <input id="current-password" name="current_password" type="password" />
+          </div>
+          <div>
+            <label for="new-password">New password</label>
+            <input id="new-password" name="new_password" type="password" />
+          </div>
+          <div>
+            <label for="confirm-password">Confirm password</label>
+            <input id="confirm-password" name="confirm_password" type="password" />
+          </div>
+        </div>
+        <div class="actions">
+          <button class="btn primary" type="button">Save Password</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>SSH Access</h2>
+        <p>Enable or disable SSH access to the VM.</p>
+        <div class="toggle">
+          <input id="ssh-enabled" name="ssh_enabled" type="checkbox" />
+          <label for="ssh-enabled">Enable SSH</label>
+        </div>
+        <div class="status">Status: Disabled</div>
+      </section>
+
+      <section class="card">
+        <h2>Log Settings</h2>
+        <p>Control journald limits and web UI log rotation.</p>
+        <div class="slider-group">
+          <div class="slider-row">
+            <label for="journal-max">Journal max size</label>
+            <input id="journal-max" name="journal_max" type="range" min="50" max="500" value="200" />
+          </div>
+          <div class="slider-row">
+            <label for="retention-days">Retention days</label>
+            <input id="retention-days" name="retention_days" type="range" min="1" max="30" value="7" />
+          </div>
+          <div class="slider-row">
+            <label for="log-size">Web UI log size (MB)</label>
+            <input id="log-size" name="log_size" type="range" min="5" max="100" value="20" />
+          </div>
+          <div class="slider-row">
+            <label for="log-rotate">Rotated files</label>
+            <input id="log-rotate" name="log_rotate" type="range" min="1" max="10" value="5" />
+          </div>
+          <div>
+            <label for="log-level">Log level</label>
+            <select id="log-level" name="log_level">
+              <option value="error">error</option>
+              <option value="warn">warn</option>
+              <option value="info" selected>info</option>
+              <option value="debug">debug</option>
+            </select>
+          </div>
+        </div>
+        <div class="divider"></div>
+        <div class="footprint">Estimated footprint: 240 MB</div>
+        <div class="actions">
+          <button class="btn" type="button">Clear Logs</button>
+          <button class="btn" type="button">Download Logs</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Update Manager</h2>
+        <p>Check for phev2mqtt and system updates.</p>
+        <div class="actions">
+          <button class="btn" type="button">Check for phev2mqtt updates</button>
+          <button class="btn" type="button">Check for system updates</button>
+        </div>
+        <div class="status">phev2mqtt updates: Not checked</div>
+        <div class="status">System updates: Not checked</div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

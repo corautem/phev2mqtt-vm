@@ -1,0 +1,15 @@
+# USB WiFi Adapter Lookup Table
+#
+# Format:
+# USB_ID      CHIPSET    DRIVER     NOTES
+#
+# Rules:
+# - USB_ID is vendor:product from lsusb (lowercase hex, e.g. 2357:0138).
+# - CHIPSET is a short chip family label (no spaces).
+# - DRIVER is the DKMS module name or in-kernel driver.
+# - NOTES is a short human description (model name, speed class, etc.).
+# - Keep columns aligned with spaces for readability.
+# - Add new adapters below the existing ones.
+#
+# USB_ID      CHIPSET    DRIVER     NOTES
+2357:0138     88x2bu     88x2bu     TP-Link Archer T3U Plus AC1300
