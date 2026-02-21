@@ -38,7 +38,11 @@ The installer detects your USB WiFi adapter and automatically installs the appro
 | ----------- | ------- | ------ | ------------------------------ |
 | `2357:0138` | 88x2bu  | 88x2bu | TP-Link Archer T3U Plus AC1300 |
 
-**Don't see your adapter?** You can add it to [`adapters.txt`](adapters.txt) following the format shown in that file, or [open an issue](https://github.com/corautem/phev2mqtt-vm/issues) with your adapter's `lsusb` output and we'll add support.
+**Choosing an adapter?** Not all USB WiFi adapters work well on Linux. Before purchasing, check that your adapter's chipset has a working Linux driver. The best-supported chipsets are **MT7612U** and **MT7921AU** (Mediatek) — both use plug-and-play in-kernel drivers with no compilation required. The **88x2bu** chipset (Realtek) also works but requires an out-of-kernel driver that the installer compiles automatically.
+
+For a comprehensive, maintained chipset compatibility reference, see [morrownr/USB-WiFi](https://github.com/morrownr/USB-WiFi) on GitHub — the most authoritative Linux USB WiFi adapter resource available.
+
+If you have tested an adapter and want to add it to the supported list, open a Pull Request with the USB ID, chipset, driver name, and adapter model in [`adapters.txt`](adapters.txt) format.
 
 ## Installation
 
