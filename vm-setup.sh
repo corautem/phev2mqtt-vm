@@ -187,7 +187,11 @@ step_install_wifi_driver() {
     fi
     
     log_info "Installing DKMS module..."
-    dkms install "${DKMS_DRIVER_NAME}/${driver_version}" || die "DKMS install failed"
+    dkms install "${DKMS_DRIVER_NAME}/${driver_version}" || {
+        log_warn "DKMS install failed - WiFi driver not loaded. Install manually after boot."
+        mark_completed "install_wifi_driver"
+        return
+    }
     
     # Verify driver module exists
     if modinfo "$DKMS_DRIVER_NAME" &>/dev/null; then
@@ -342,8 +346,15 @@ step_install_webui() {
         # Find and copy webui directory
         local extracted_dir
         extracted_dir=$(find /tmp -name "phev2mqtt-vm-*" -type d | head -n1)
+        log_info "Extracted archive contents:"
+        ls -la "${extracted_dir}/" || true
         if [[ -d "${extracted_dir}/webui" ]]; then
-            cp -r "${extracted_dir}/webui"/* "$WEBUI_DIR/"
+            log_info "Webui directory contents:"
+            ls -la "${extracted_dir}/webui/" || true
+            cp -r "${extracted_dir}/webui"/* "$WEBUI_DIR/" || die "Failed to copy web UI files"
+            if [[ ! -f "${WEBUI_DIR}/requirements.txt" ]]; then
+                die "Copy failed — requirements.txt missing from ${WEBUI_DIR}"
+            fi
         else
             die "Could not find webui directory in downloaded archive"
         fi
@@ -357,8 +368,12 @@ step_install_webui() {
     
     # Install Python dependencies
     log_info "Installing Python dependencies..."
+    if [[ ! -f "${WEBUI_DIR}/requirements.txt" ]]; then
+        die "requirements.txt not found at ${WEBUI_DIR}/requirements.txt"
+    fi
     "${WEBUI_DIR}/venv/bin/pip" install --quiet --upgrade pip
-    "${WEBUI_DIR}/venv/bin/pip" install --quiet -r "${WEBUI_DIR}/requirements.txt" || die "Failed to install Python dependencies"
+    "${WEBUI_DIR}/venv/bin/pip" install -r "${WEBUI_DIR}/requirements.txt" \
+        || die "Failed to install Python dependencies"
     
     # Set permissions
     chown -R root:root "$WEBUI_DIR"
