@@ -148,6 +148,35 @@ select_mode() {
     log_info "Selected mode: ${MODE}"
 }
 
+advanced_settings_ram() {
+    local ram_choice
+    ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Memory" \
+        --menu "Amount of RAM (default: 1GB):" \
+        14 50 4 \
+        "512"  "512MB — not recommended" \
+        "1024" "1GB (default)" \
+        "2048" "2GB" \
+        "4096" "4GB" \
+        3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+
+    if [[ "$ram_choice" == "512" ]]; then
+        if whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Memory Warning" \
+            --yesno "⚠ 512MB is not recommended. See README for details.\n\nDo you want to re-select memory allocation?" \
+            --yes-button "Re-select" \
+            --no-button "Continue anyway" \
+            10 60; then
+            # User chose Re-select
+            advanced_settings_ram
+            return
+        fi
+    fi
+
+    VM_MEMORY="$ram_choice"
+}
+
 advanced_settings() {
     # VM Name
     VM_NAME=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
@@ -170,24 +199,7 @@ advanced_settings() {
     [[ $? -ne 0 ]] && die "Installation cancelled by user"
 
     # RAM
-    local ram_choice
-    ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "Memory" \
-        --menu "Amount of RAM (default: 1GB):" \
-        14 50 4 \
-        "512"  "512MB — not recommended" \
-        "1024" "1GB (default)" \
-        "2048" "2GB" \
-        "4096" "4GB" \
-        3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && die "Installation cancelled by user"
-    if [[ "$ram_choice" == "512" ]]; then
-        whiptail --backtitle "Proxmox VE Helper Scripts" \
-            --title "Memory Warning" \
-            --msgbox "⚠ 512MB is not recommended. See README for details." \
-            8 60
-    fi
-    VM_MEMORY="$ram_choice"
+    advanced_settings_ram
 
     # Disk size
     VM_DISK_SIZE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
