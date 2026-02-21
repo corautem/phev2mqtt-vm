@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # phev2mqtt Proxmox VM Installer
-# https://github.com/[repo]/phev2mqtt-proxmox
+# https://github.com/corautem/phev2mqtt-vm
 #
 # This script creates and configures a Debian 12 VM on Proxmox VE
 # with USB WiFi passthrough for phev2mqtt gateway functionality.
@@ -14,7 +14,7 @@ set -euo pipefail
 # ============================================================================
 
 SCRIPT_VERSION="1.0.0"
-REPO_RAW_BASE="https://raw.githubusercontent.com/[repo]/phev2mqtt-proxmox/main"
+REPO_RAW_BASE="https://raw.githubusercontent.com/corautem/phev2mqtt-vm/main"
 ADAPTERS_URL="${REPO_RAW_BASE}/adapters.txt"
 VM_SETUP_URL="${REPO_RAW_BASE}/vm-setup.sh"
 
