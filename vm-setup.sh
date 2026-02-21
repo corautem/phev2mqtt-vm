@@ -159,30 +159,32 @@ step_install_wifi_driver() {
     
     log_info "Installing WiFi driver (${DKMS_DRIVER_NAME}) via DKMS..."
     
-    # Clone driver repository
-    local driver_clone_dir="/usr/src/${DKMS_DRIVER_NAME}-git"
-    if [[ ! -d "$driver_clone_dir" ]]; then
-        git clone "$DKMS_DRIVER_REPO" "$driver_clone_dir" || die "Failed to clone driver repository"
-    fi
-    
-    cd "$driver_clone_dir"
-    
-    # Parse version from dkms.conf
     local driver_version
-    if [[ -f "dkms.conf" ]]; then
-        driver_version=$(grep -oP '^PACKAGE_VERSION="\K[^"]+' dkms.conf || echo "git")
-    else
-        driver_version="git"
-    fi
+    local temp_clone_dir="/tmp/88x2bu-src"
+    rm -rf "$temp_clone_dir"
+    git clone "$DKMS_DRIVER_REPO" "$temp_clone_dir" || die "Failed to clone driver repository"
+    driver_version=$(grep -oP '^PACKAGE_VERSION="\K[^"]+' "$temp_clone_dir/dkms.conf" || echo "5.13.1")
+    
+    local dkms_src_dir="/usr/src/${DKMS_DRIVER_NAME}-${driver_version}"
+    rm -rf "$dkms_src_dir"
+    mkdir -p "$dkms_src_dir"
+    cp -r "$temp_clone_dir/." "$dkms_src_dir/"
+    rm -rf "$temp_clone_dir"
     
     log_info "Driver version: ${driver_version}"
     
+    cd "$dkms_src_dir"
+    
     # Run DKMS commands explicitly (non-interactive)
     log_info "Adding DKMS module..."
-    dkms add . || log_warn "DKMS add failed (may already be added)"
+    dkms add "${DKMS_DRIVER_NAME}/${driver_version}" || log_warn "DKMS add failed (may already be added)"
     
     log_info "Building DKMS module..."
-    dkms build "${DKMS_DRIVER_NAME}/${driver_version}" || die "DKMS build failed"
+    if ! dkms build "${DKMS_DRIVER_NAME}/${driver_version}"; then
+        log_warn "DKMS build failed - WiFi driver not loaded. Install manually after boot."
+        mark_completed "install_wifi_driver"
+        return
+    fi
     
     log_info "Installing DKMS module..."
     dkms install "${DKMS_DRIVER_NAME}/${driver_version}" || die "DKMS install failed"

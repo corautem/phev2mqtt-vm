@@ -791,7 +791,7 @@ create_vm() {
         -ide2 "${STORAGE}:cloudinit" \
         -boot order=scsi0 \
         -serial0 socket \
-        -ciuser root \
+        -ciuser debian \
         -cipassword "${SSH_PASSWORD}" \
         -ipconfig0 "ip=dhcp" \
         || die "Failed to configure VM"
@@ -812,8 +812,17 @@ create_vm() {
     cp "$vm_setup_script" "$snippet_file"
     chmod +x "$snippet_file"
 
+    local root_pw_snippet="${snippets_dir}/phev2mqtt-rootpw-${VMID}.sh"
+    cat > "$root_pw_snippet" <<ROOTPW_EOF
+#!/bin/bash
+echo "root:${SSH_PASSWORD}" | chpasswd
+sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+systemctl restart ssh 2>/dev/null || true
+ROOTPW_EOF
+    chmod +x "$root_pw_snippet"
+
     qm set "$VMID" \
-        --cicustom "user=local:snippets/phev2mqtt-setup-${VMID}.sh" \
+        --cicustom "user=local:snippets/phev2mqtt-setup-${VMID}.sh,vendor=local:snippets/phev2mqtt-rootpw-${VMID}.sh" \
         || log_warn "Failed to set cloud-init custom script" >&2
 
     log_info "Configuring USB passthrough..."
