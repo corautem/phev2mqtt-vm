@@ -6,6 +6,7 @@ ISSUES.md
 
 # Build instructions and local paths — internal only
 .github/copilot-instructions.md
+COPILOT-SETUP.md
 
 # Python
 __pycache__/
