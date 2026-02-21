@@ -88,7 +88,14 @@ SSH can be disabled from the web UI after setup if you prefer to restrict access
 
 ### 2. Set Your Web UI Password
 
-On first access to the web UI, you'll be forced to set a separate web UI password. **There is no web UI password recovery.** If you lose it, you must re-run the installer.
+On first access to the web UI, you'll be forced to set a separate web UI password.
+**There is no web UI password recovery via the web UI itself.** If you lose it,
+SSH into the VM as root and delete the config file to reset the first-run gate:
+
+    rm /etc/phev2mqtt-webui/config.enc
+    systemctl restart phev2mqtt-webui
+
+Then reload the web UI — you will be returned to the password setup screen.
 
 ### 3. Configure WiFi
 
@@ -219,9 +226,18 @@ If a kernel update is included, you'll be prompted to reboot after the update co
 
 ### 7. Forgot web UI password
 
-**There is no password recovery.** You must re-run the installer. This will destroy and recreate the VM — take a Proxmox snapshot first if you want any chance of recovery.
+If you have SSH access (root password set during install), you can reset the web UI
+password without reinstalling:
 
-Re-running the installer will reset all settings. Your Home Assistant entities will need to be reconfigured after reinstall.
+1. SSH into the VM: `ssh root@<VM_IP>`
+2. Delete the config file: `rm /etc/phev2mqtt-webui/config.enc`
+3. Restart the web UI: `systemctl restart phev2mqtt-webui`
+4. Open the web UI — you will be returned to the first-run setup screen
+
+**If you have also lost your SSH/console password:** You must re-run the installer.
+This will destroy and recreate the VM. Take a Proxmox snapshot first if you need
+to preserve any configuration. Your Home Assistant entities will need to be
+reconfigured after reinstall.
 
 ## Contributing
 
