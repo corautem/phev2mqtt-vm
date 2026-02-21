@@ -149,88 +149,57 @@ select_mode() {
 }
 
 advanced_settings() {
-    while true; do
-        local choice
-        choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-            --title "SETTINGS" \
-            --menu "Choose settings to change:\n(current values shown)" \
-            20 70 6 \
-            "1" "VM Name:       ${VM_NAME}" \
-            "2" "CPU Cores:     ${VM_CORES}" \
-            "3" "RAM:           ${VM_MEMORY}MB" \
-            "4" "Disk Size:     ${VM_DISK_SIZE}" \
-            "5" "Review & Proceed" \
-            "6" "Cancel Installation" \
-            3>&1 1>&2 2>&3)
-        
-        if [[ $? -ne 0 ]]; then
-            die "Installation cancelled by user"
-        fi
-        
-        case "$choice" in
-            1)
-                VM_NAME=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-                    --title "VM Name" \
-                    --inputbox "Enter VM name:" \
-                    10 60 "${VM_NAME}" \
-                    3>&1 1>&2 2>&3)
-                [[ $? -ne 0 ]] && die "Installation cancelled by user"
-                ;;
-            2)
-                local vcpu_choice
-                vcpu_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-                    --title "CPU Configuration" \
-                    --menu "Number of vCPUs:" \
-                    12 50 4 \
-                    "1" "1 vCPU" \
-                    "2" "2 vCPUs" \
-                    "3" "3 vCPUs" \
-                    "4" "4 vCPUs" \
-                    3>&1 1>&2 2>&3)
-                [[ $? -ne 0 ]] && die "Installation cancelled by user"
-                VM_CORES="$vcpu_choice"
-                ;;
-            3)
-                local ram_choice
-                ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-                    --title "Memory Configuration" \
-                    --menu "Amount of RAM:" \
-                    14 50 4 \
-                    "512" "512MB (not recommended)" \
-                    "1024" "1GB (default)" \
-                    "2048" "2GB" \
-                    "4096" "4GB" \
-                    3>&1 1>&2 2>&3)
-                [[ $? -ne 0 ]] && die "Installation cancelled by user"
-                if [[ "$ram_choice" == "512" ]]; then
-                    whiptail --backtitle "Proxmox VE Helper Scripts" \
-                        --title "Memory Warning" \
-                        --msgbox "512MB is not recommended. The installation may be slow or fail. Consider 1GB or more." 10 60
-                fi
-                VM_MEMORY="$ram_choice"
-                ;;
-            4)
-                local disk_choice
-                disk_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-                    --title "Disk Configuration" \
-                    --menu "VM disk size:" \
-                    12 50 4 \
-                    "12G" "12GB (minimum)" \
-                    "20G" "20GB" \
-                    "32G" "32GB" \
-                    "50G" "50GB" \
-                    3>&1 1>&2 2>&3)
-                [[ $? -ne 0 ]] && die "Installation cancelled by user"
-                VM_DISK_SIZE="$disk_choice"
-                ;;
-            5)
-                break
-                ;;
-            6)
-                die "Installation cancelled by user"
-                ;;
-        esac
-    done
+    # VM Name
+    VM_NAME=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "VM Name" \
+        --inputbox "Enter a name for the VM:" \
+        10 60 "${VM_NAME}" \
+        3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+
+    # CPU cores
+    VM_CORES=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "CPU Cores" \
+        --menu "Number of vCPUs (default: 1):" \
+        12 50 4 \
+        "1" "1 vCPU (default)" \
+        "2" "2 vCPUs" \
+        "3" "3 vCPUs" \
+        "4" "4 vCPUs" \
+        3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+
+    # RAM
+    local ram_choice
+    ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Memory" \
+        --menu "Amount of RAM (default: 1GB):" \
+        14 50 4 \
+        "512"  "512MB — not recommended" \
+        "1024" "1GB (default)" \
+        "2048" "2GB" \
+        "4096" "4GB" \
+        3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+    if [[ "$ram_choice" == "512" ]]; then
+        whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Memory Warning" \
+            --msgbox "⚠ 512MB is not recommended. See README for details." \
+            8 60
+    fi
+    VM_MEMORY="$ram_choice"
+
+    # Disk size
+    VM_DISK_SIZE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Disk Size" \
+        --menu "VM disk size (default: 12GB):" \
+        12 50 4 \
+        "12G" "12GB (default minimum)" \
+        "20G" "20GB" \
+        "32G" "32GB" \
+        "50G" "50GB" \
+        3>&1 1>&2 2>&3)
+    [[ $? -ne 0 ]] && die "Installation cancelled by user"
 }
 
 select_vmid() {
@@ -471,9 +440,16 @@ create_vm() {
     
     log_info "Importing disk image..."
     
-    # Import disk and use constructed disk path
-    qm importdisk "$VMID" "$image_file" "$STORAGE" &>/dev/null || die "Failed to import disk"
-    local imported_disk="${STORAGE}:vm-${VMID}-disk-0"
+    # Import disk and capture output to extract actual disk path
+    local import_output
+    import_output=$(qm importdisk "$VMID" "$image_file" "$STORAGE" 2>&1) \
+      || die "Failed to import disk: ${import_output}"
+    local imported_disk
+    imported_disk=$(echo "$import_output" | grep -oP "[a-zA-Z0-9_\-]+:vm-${VMID}-disk-[0-9]+" | tail -n1)
+    if [[ -z "$imported_disk" ]]; then
+      die "Could not determine imported disk path. Import output: ${import_output}"
+    fi
+    log_info "Imported disk: ${imported_disk}"
     
     log_info "Configuring VM hardware..."
     
