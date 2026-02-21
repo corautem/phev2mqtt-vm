@@ -57,12 +57,13 @@ The installer will:
 1. Detect all connected USB devices and show a numbered list
 2. Validate your USB WiFi adapter chipset against the supported list
 3. Prompt you to select a VMID (suggests lowest available)
-4. Prompt you to select a Proxmox storage pool
-5. Download the Debian 12 minimal cloud image (with SHA512 verification)
-6. Create a KVM VM with 1 vCPU, 1GB RAM, 12GB disk
-7. Pass through your selected USB WiFi adapter
-8. Configure cloud-init to run the VM setup script
-9. Start the VM
+4. Prompt you to set a root password for SSH and console access
+5. Prompt you to select a Proxmox storage pool
+6. Download the Debian 12 minimal cloud image (with SHA512 verification)
+7. Create a KVM VM with 1 vCPU, 1GB RAM, 12GB disk
+8. Pass through your selected USB WiFi adapter
+9. Configure cloud-init to run the VM setup script
+10. Start the VM
 
 The VM will automatically install all dependencies, compile phev2mqtt from source, install the WiFi driver, and start the web UI service. **This takes 5-10 minutes.** Once complete, the web UI will be accessible at `http://<VM_IP>:8080`.
 
@@ -76,11 +77,20 @@ Or check the Proxmox web UI under VM → Summary → IPs.
 
 ## First-Time Setup
 
-### 1. Set Your Password
+### 1. SSH and Console Access
 
-On first access, you'll be forced to set a password. **There is no password recovery.** If you lose your password, you must re-run the installer.
+The installer sets a root password for SSH and Proxmox console access during installation. You can log in immediately after the VM starts:
 
-### 2. Configure WiFi
+- **Proxmox console:** root + the password you set during installation
+- **SSH:** ssh root@<VM_IP> with the same password
+
+SSH can be disabled from the web UI after setup if you prefer to restrict access.
+
+### 2. Set Your Web UI Password
+
+On first access to the web UI, you'll be forced to set a separate web UI password. **There is no web UI password recovery.** If you lose it, you must re-run the installer.
+
+### 3. Configure WiFi
 
 Navigate to **Settings** and enter your PHEV's WiFi credentials:
 
@@ -95,7 +105,7 @@ Optional but recommended:
 
 Click **Connect** and wait 15-30 seconds. The status indicator will show "Connected" when successful.
 
-### 3. Configure MQTT
+### 4. Configure MQTT
 
 Enter your MQTT broker details:
 
@@ -106,11 +116,11 @@ Enter your MQTT broker details:
 
 Click **Connect** and wait a few seconds. The status indicator will show "Connected" when successful.
 
-### 4. Start phev2mqtt
+### 5. Start phev2mqtt
 
 Once both WiFi and MQTT are connected, click **Start** in the phev2mqtt Service section. The service will connect to your vehicle and begin publishing sensor data to your MQTT broker.
 
-### 5. Register with Your Vehicle
+### 6. Register with Your Vehicle
 
 To receive data from and send commands to your vehicle, you must register the phev2mqtt gateway with your car. Connecting to the car's WiFi network is not enough on its own — registration must complete successfully before any MQTT data flows.
 
@@ -201,7 +211,13 @@ If a kernel update is included, you'll be prompted to reboot after the update co
 - **RAM:** 1GB is sufficient for normal operation. High RAM usage may indicate a memory leak (restart phev2mqtt service).
 - **CPU:** Sustained high CPU (>80% for 60s+) is abnormal. Check for runaway processes with `top` in the terminal.
 
-### 6. Forgot web UI password
+### 6. Can't log in to console or SSH
+
+- **Check the password:** Use the root password you set during the installer's "SSH / CONSOLE PASSWORD" prompt.
+- **If you forgot the install password:** From the Proxmox host shell, run: `qm set <VMID> --cipassword 'NewPassword123!' && qm cloudinit update <VMID>` then reboot the VM. Note: this only works if the VM was not yet fully set up (cloud-init re-applies on config change but does not re-run the setup script).
+- **Alternative:** Take a Proxmox snapshot before reinstalling if you need to preserve any configuration.
+
+### 7. Forgot web UI password
 
 **There is no password recovery.** You must re-run the installer. This will destroy and recreate the VM — take a Proxmox snapshot first if you want any chance of recovery.
 

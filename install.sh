@@ -49,6 +49,7 @@ USB_DEVICE=""
 USB_ID=""
 USB_DRIVER=""
 USB_NOTES=""
+SSH_PASSWORD=""
 TEMP_DIR=""
 CREATED_VMID=""
 MODE="Simple"
@@ -521,6 +522,54 @@ select_storage() {
     log_info "Selected storage: ${STORAGE}"
 }
 
+select_ssh_password() {
+    while true; do
+        local pw1
+        if pw1=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "SSH / CONSOLE PASSWORD" \
+            --passwordbox "Set a root password for SSH and console access (min 8 characters)" \
+            10 58 \
+            3>&1 1>&2 2>&3); then
+            if [[ -z "$pw1" ]]; then
+                die "Installation cancelled by user"
+            fi
+        else
+            die "Installation cancelled by user"
+        fi
+
+        if [[ ${#pw1} -lt 8 ]]; then
+            whiptail --backtitle "Proxmox VE Helper Scripts" \
+                --title "Invalid Password" \
+                --msgbox "Password must be at least 8 characters." 8 50
+            continue
+        fi
+
+        local pw2
+        if pw2=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "CONFIRM PASSWORD" \
+            --passwordbox "Confirm password" \
+            10 58 \
+            3>&1 1>&2 2>&3); then
+            if [[ -z "$pw2" ]]; then
+                die "Installation cancelled by user"
+            fi
+        else
+            die "Installation cancelled by user"
+        fi
+
+        if [[ "$pw1" != "$pw2" ]]; then
+            whiptail --backtitle "Proxmox VE Helper Scripts" \
+                --title "Password Mismatch" \
+                --msgbox "Passwords do not match. Please try again." 8 50
+            continue
+        fi
+
+        SSH_PASSWORD="$pw1"
+        log_info "SSH password set"
+        break
+    done
+}
+
 select_usb_adapter() {
     # Get ALL USB devices
     local usb_devices
@@ -664,6 +713,7 @@ show_confirmation() {
     summary+="Machine: i440fx\n"
     summary+="Bridge: ${BRG}\n"
     summary+="MAC: ${MAC}\n"
+    summary+="SSH/Console Password: ********\n"
     summary+="OS: Debian 12 (Bookworm)\n\n"
     summary+="USB Adapter:\n"
     summary+="  ID: ${USB_ID}\n"
@@ -742,6 +792,7 @@ create_vm() {
         -boot order=scsi0 \
         -serial0 socket \
         -ciuser root \
+        -cipassword "${SSH_PASSWORD}" \
         -ipconfig0 "ip=dhcp" \
         || die "Failed to configure VM"
 
@@ -843,6 +894,9 @@ main() {
         select_vmid
         select_storage
     fi
+
+    # SSH password always set in both modes
+    select_ssh_password
 
     # USB adapter always shown in both modes
     select_usb_adapter

@@ -103,6 +103,30 @@ step_update_system() {
     mark_completed "update_system"
 }
 
+step_configure_ssh() {
+    if is_completed "configure_ssh"; then
+        log_info "SSH configuration already completed, skipping"
+        return
+    fi
+    
+    log_info "Configuring SSH access..."
+    
+    # Install openssh-server if not present
+    DEBIAN_FRONTEND=noninteractive apt-get install -y openssh-server || die "Failed to install openssh-server"
+    
+    # Configure SSH to allow root login with password
+    log_info "Enabling root login with password..."
+    sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+    sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+    
+    # Enable and start SSH service
+    systemctl enable ssh
+    systemctl start ssh || log_warn "SSH start failed - will be available after reboot"
+    
+    mark_completed "configure_ssh"
+    log_info "SSH configured - root login enabled with password set at install time"
+}
+
 step_detect_usb_adapter() {
     if is_completed "detect_usb_adapter"; then
         log_info "USB adapter detection already completed, skipping"
@@ -533,6 +557,7 @@ main() {
     
     # Run setup steps
     step_update_system
+    step_configure_ssh
     step_detect_usb_adapter
     step_install_wifi_driver
     step_install_go

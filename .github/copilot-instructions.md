@@ -49,8 +49,16 @@ Next file to build: — none, build complete —
 
 ## Approval Gate — Critical Workflow Rule
 
-NEVER modify copilot-instructions.md on your own initiative.
-Only update it when explicitly instructed per the workflow below.
+This project is actively tested and debugged. Claude (the supervisor) reviews all output before anything is pushed.
+
+Repository: https://github.com/corautem/phev2mqtt-vm
+Project: Proxmox VM installer + Flask web UI for phev2mqtt (Mitsubishi Outlander PHEV to MQTT gateway)
+
+### Role split
+
+- **Claude** = build supervisor. Reviews issues, diagnoses bugs, approves or rejects output, provides commit messages.
+- **Copilot** = implementer. Writes files to disk, waits for review, never pushes without explicit PUSH instruction.
+- **User** = relays Copilot output back to Claude for review.
 
 ### States
 
@@ -58,76 +66,76 @@ Only update it when explicitly instructed per the workflow below.
 
 ### Workflow
 
-STEP 1 — When told to build a file:
+STEP 1 — When told to build or fix a file:
 
-- Update copilot-instructions.md: mark file as ⏳ in both
-  Build Progress and Full Build Plan
-- Using filesystem, write the file to its full absolute path under
-  C:\Users\cosmi\Desktop\VS Code\phev2mqtt-proxmox\
-- Ask for review, approval and next instructions
-- Do not change anything else. WAIT.
+- Update copilot-instructions.md: mark file ⏳
+- Write the file to its full absolute path under C:\Users\cosmi\Desktop\VS Code\phev2mqtt-proxmox\
+- Update ISSUES.md with the bug/fix entry if this is a fix
+- Ask for review. WAIT.
 
-STEP 2a — When told "APPROVED" with no new file instructions:
+STEP 2a — When user relays Claude's "APPROVED — PUSH" with a commit message:
+
+- Stage only the changed source files (never ISSUES.md)
+- Commit with the exact message Claude provided
+- Push to https://github.com/corautem/phev2mqtt-vm
+- Update copilot-instructions.md: mark file ✅
+- Report: "Pushed. Commit: [message]"
+
+STEP 2b — When user relays Claude's "APPROVED — HOLD":
 
 - Update copilot-instructions.md: mark file ✅
-- STOP. Ask for next instructions.
-- Do NOT push until user replies PUSH.
+- Do NOT push. Ask for next instructions.
 
-STEP 2b — When told "APPROVED" with next file instructions:
-
-- Update copilot-instructions.md:
-  - Mark approved file ✅
-  - Mark next file ⏳
-  - Update "Next file to build" line
-- Using filesystem, write the file to its full absolute path under
-  C:\Users\cosmi\Desktop\VS Code\phev2mqtt-proxmox\
-- Ask for review, approval and next instructions.
-- Do NOT push the approved file until user explicitly replies PUSH.
-- Do not change anything else. WAIT.
-
-STEP 3 — When told "REJECTED — fix it":
+STEP 3 — When user relays Claude's "REJECTED — fix: [reason]":
 
 - File stays ⏳. Do not update copilot-instructions.md.
-- Using filesystem, write the corrected file to its full absolute path under
-  C:\Users\cosmi\Desktop\VS Code\phev2mqtt-proxmox\
-- Ask for review, approval and next instructions. WAIT.
+- Write the corrected file to disk
+- Update ISSUES.md if the rejection reveals a new root cause
+- Ask for review. WAIT.
 
-EDGE CASE — If next file instructions arrive but no explicit
-approval for the current ⏳ file:
+EDGE CASE — New file instructions arrive but current file still ⏳:
 
-- Stop and ask: "Current file [filename] is still pending
-  approval. Approve it before I proceed?"
-- Do not generate or write anything until confirmed.
+- Stop and ask: "Current file [filename] is still pending approval. Approve it before I proceed?"
+
+### If starting in a new chat or agent session
+
+Read this entire copilot-instructions.md first. Read ISSUES.md second. This gives full project context. Do not ask the user to re-explain the project — the answer is in these two files.
+
+### ISSUES.md format (required for every fix)
+
+## Issue #N — Short description
+
+**File:** filename — function name
+**Symptom:** What the user saw
+**Root cause:** Why it happened
+**Fix:** What was changed
+**Commit:** Commit message used when pushed
 
 ---
 
-## Git Commit & Push Rules — Never Push Without Explicit Approval
+## Git Commit & Push Rules
 
-NEVER run git push, git commit, gh pr, or any command that sends or
-stages code without explicit instruction from the user.
+NEVER run git push, git commit, or any command that sends code without explicit instruction.
 
-The correct workflow for every fix is:
+### Workflow for every fix
 
 STEP 1 — Write the fixed file(s) to disk via filesystem tool only
-STEP 2 — Ask: "Files written locally. Please review and test.
-Reply PUSH when ready to commit and push to GitHub."
+STEP 2 — Ask: "Files written locally. Please review and test. Reply PUSH when ready."
 STEP 3 — WAIT. Do not stage. Do not commit. Do not push. Do nothing.
-STEP 4 — Only when the user replies PUSH: - Stage only the changed source files - Commit with a clear single-line message describing the fix - Push to GitHub
+STEP 4 — Only when user replies PUSH:
 
-### ISSUES.md is never committed or pushed
-
-ISSUES.md is listed in .gitignore and must never be staged, committed,
-or pushed. It is a local-only internal debugging aid and may contain
-sensitive diagnostic information. Always update it on disk as part of
-a fix, but never include it in any git operation.
+- Stage only the changed source files
+- Commit with the exact message provided by the supervisor (Claude)
+- Push to: https://github.com/corautem/phev2mqtt-vm
 
 ### Rules
 
 - This applies to ALL file changes without exception
-- If the user says "fix it and push" in one message — stop and reply:
-  "I'll write the fix first. Please review before I push."
+- If the user says "fix it and push" in one message — write the fix first, ask for review, then wait
 - Never combine "write file" and "git push" in the same agent turn
-- ISSUES.md: update locally, never commit, never push
+- ISSUES.md: update locally on every fix, never commit or push it (listed in .gitignore)
+- Every bug fix must be documented in ISSUES.md before pushing — follow the existing format:
+  Issue number, File, Symptom, Root cause, Fix, Commit reference
 
 ---
 
@@ -402,6 +410,7 @@ These are the topics phev2mqtt publishes and subscribes to. Use this list for th
 - Must detect USB adapters with `lsusb` and present a numbered selection list
 - VM spec: 1 vCPU, 1GB RAM, 12GB disk, Debian 12 minimal cloud image
 - Must clean up with `qm destroy` on any failure after VM creation starts
+- Must prompt for SSH/console root password via whiptail --passwordbox with confirmation in both Simple and Advanced modes. Password set via -cipassword in cloud-init. Minimum 8 characters.
 - Never prompts for MQTT, WiFi, or any application config — that's the web UI's job
 
 **Script 2 (VM setup via cloud-init):**
@@ -411,6 +420,7 @@ These are the topics phev2mqtt publishes and subscribes to. Use this list for th
 - Must configure journald limits as part of setup
 - Must set phev2mqtt systemd service to `-v=info` — never `-v=debug`
 - Must be idempotent — safe to re-run
+- Must install openssh-server and configure PermitRootLogin yes + PasswordAuthentication yes in /etc/ssh/sshd_config. SSH must be enabled and started. Always runs as step_configure_ssh() immediately after step_update_system().
 
 **USB adapter lookup table format:**
 
@@ -427,7 +437,7 @@ These are the topics phev2mqtt publishes and subscribes to. Use this list for th
 2. Setup screen cannot be skipped or dismissed
 3. Minimum password length: 8 characters with confirmation field
 4. Mandatory warning with checkbox acknowledgement: _"There is no password recovery. If you lose your password, re-run the installer."_
-5. SSH and terminal are locked server-side until password is set
+5. SSH is always enabled from first boot using the password set during install (via cloud-init -cipassword). The web UI SSH toggle controls post-setup enable/disable only. The web UI terminal is locked server-side until the web UI password is set.
 6. Config written atomically on password save — temp file → verify → rename
 7. Setup lock flag prevents race condition if two browsers hit setup simultaneously
 8. If VM crashes mid-save and no valid password file exists on reboot → return to setup gate
