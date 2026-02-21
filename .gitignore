@@ -1,6 +1,12 @@
 # Internal specification — not for publication
 SPEC.md
 
+# Testing and bug tracking — internal only
+ISSUES.md
+
+# Build instructions and local paths — internal only
+.github/copilot-instructions.md
+
 # Python
 __pycache__/
 *.pyc
