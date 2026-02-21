@@ -18,26 +18,32 @@ REPO_RAW_BASE="https://raw.githubusercontent.com/corautem/phev2mqtt-vm/main"
 ADAPTERS_URL="${REPO_RAW_BASE}/adapters.txt"
 VM_SETUP_URL="${REPO_RAW_BASE}/vm-setup.sh"
 
-# Debian 12 cloud image
-DEBIAN_IMAGE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2"
-DEBIAN_IMAGE_CHECKSUM_URL="${DEBIAN_IMAGE_URL}.SHA512"
+DEBIAN_IMAGE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
+DEBIAN_IMAGE_CHECKSUM_URL="https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"
 
 # VM defaults
-VM_CORES=1
-VM_MEMORY=1024  # MB
-VM_DISK_SIZE="12G"
-VM_OS_TYPE="l26"  # Linux 2.6+ kernel
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# Global variables
-MODE="Simple"
 VMID=""
 VM_NAME="phev2mqtt"
+HN="phev2mqtt"
+CPU_TYPE=""
+VM_MACHINE_TYPE=""
+CORE_COUNT=1
+RAM_SIZE=1024
+DISK_SIZE="12G"
+DISK_CACHE=""
+BRG="vmbr0"
+VLAN=""
+MTU=""
+START_VM="yes"
+GEN_MAC=02:$(openssl rand -hex 5 | awk '{print toupper($0)}' | sed 's/\(..\)/\1:/g; s/.$//')
+MAC="$GEN_MAC"
+
+# Storage type detection results
+DISK_EXT=""
+DISK_REF=""
+DISK_IMPORT=""
+THIN="discard=on,ssd=1,"
+
 STORAGE=""
 USB_DEVICE=""
 USB_ID=""
@@ -45,6 +51,12 @@ USB_DRIVER=""
 USB_NOTES=""
 TEMP_DIR=""
 CREATED_VMID=""
+MODE="Simple"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
 
 # ============================================================================
 # Helper Functions
@@ -94,7 +106,7 @@ check_proxmox() {
 }
 
 check_dependencies() {
-    local deps=(whiptail curl lsusb wget)
+    local deps=(whiptail curl lsusb wget numfmt)
     local missing=()
     
     for cmd in "${deps[@]}"; do
@@ -128,143 +140,334 @@ Then re-run the installer."
 show_welcome() {
     whiptail --backtitle "Proxmox VE Helper Scripts" \
         --title "phev2mqtt Proxmox Installer v${SCRIPT_VERSION}" \
-        --msgbox "This installer will create a Debian 12 VM configured as a phev2mqtt gateway for Mitsubishi Outlander PHEV vehicles.\n\nWhat will be installed:\n• Debian 12 minimal VM (1 vCPU, 1GB RAM, 12GB disk)\n• USB WiFi adapter passthrough\n• phev2mqtt binary (built from source)\n• Web UI for configuration and management\n\nAfter installation, configure WiFi and MQTT via the web interface.\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
+        --msgbox "This installer will create a Debian 12 VM configured as a phev2mqtt gateway for Mitsubishi Outlander PHEV vehicles.\n\nWhat will be installed:\n- Debian 12 VM with OVMF/UEFI bios\n- USB WiFi adapter passthrough\n- phev2mqtt binary (built from source)\n- Web UI for configuration and management\n\nAfter installation, configure WiFi and MQTT via the web interface.\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
         20 78
 }
 
+default_settings() {
+    MODE="Simple"
+    log_info "Using default settings:"
+    log_info "  VM Name:   ${HN}"
+    log_info "  CPU Model: KVM64"
+    log_info "  Cores:     ${CORE_COUNT}"
+    log_info "  RAM:       ${RAM_SIZE} MiB"
+    log_info "  Disk:      ${DISK_SIZE}"
+    log_info "  Bridge:    ${BRG}"
+    log_info "  MAC:       ${MAC}"
+}
+
 select_mode() {
-    MODE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "Installation Mode" \
-        --menu "Select installation mode:" \
-        12 60 2 \
-        "Simple" "Use defaults (1 vCPU, 1GB RAM, 12GB disk, name: phev2mqtt)" \
-        "Advanced" "Customize VM settings" \
-        3>&1 1>&2 2>&3)
-    
-    if [[ $? -ne 0 || -z "$MODE" ]]; then
-        die "Installation cancelled by user"
+    if ! whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "SETTINGS" \
+        --yesno "Use Default Settings?" \
+        --no-button "Advanced" \
+        10 58; then
+        MODE="Advanced"
+    else
+        MODE="Simple"
     fi
-    
     log_info "Selected mode: ${MODE}"
 }
 
-advanced_settings_ram() {
-    local ram_choice
-    ram_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "Memory" \
-        --default-item "1024" \
-        --menu "Amount of RAM (default: 1GB):" \
-        14 50 4 \
-        "512"  "512MB — not recommended" \
-        "1024" "1GB (default)" \
-        "2048" "2GB" \
-        "4096" "4GB" \
-        3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+advanced_settings() {
+    MODE="Advanced"
 
-    if [[ "$ram_choice" == "512" ]]; then
-        if whiptail --backtitle "Proxmox VE Helper Scripts" \
-            --title "Memory Warning" \
-            --yesno "⚠ 512MB is not recommended. See README for details.\n\nDo you want to re-select memory allocation?" \
-            --yes-button "Re-select" \
-            --no-button "Continue anyway" \
-            10 60; then
-            # User chose Re-select
-            advanced_settings_ram
-            return
+    # VIRTUAL MACHINE ID — community-scripts pattern
+    while true; do
+        if VMID=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "VIRTUAL MACHINE ID" \
+            --cancel-button "Exit-Script" \
+            --inputbox "Set Virtual Machine ID" \
+            8 58 "$(pvesh get /cluster/nextid 2>/dev/null || echo 100)" \
+            3>&1 1>&2 2>&3); then
+            [[ -z "$VMID" ]] && VMID=$(pvesh get /cluster/nextid 2>/dev/null || echo 100)
+            if pct status "$VMID" &>/dev/null || qm status "$VMID" &>/dev/null; then
+                whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "ID In Use" \
+                    --msgbox "ID $VMID is already in use." 8 50
+                continue
+            fi
+            log_info "VM ID: ${VMID}"
+            break
+        else
+            die "Installation cancelled by user"
         fi
+    done
+
+    # MACHINE TYPE
+    local mach
+    if mach=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "MACHINE TYPE" \
+        --cancel-button "Exit-Script" \
+        --radiolist "Choose Type" \
+        10 58 2 \
+        "i440fx" "Machine i440fx" ON \
+        "q35"    "Machine q35"    OFF \
+        3>&1 1>&2 2>&3); then
+        if [[ "$mach" == "q35" ]]; then
+            VM_MACHINE_TYPE=" -machine q35"
+        else
+            VM_MACHINE_TYPE=""
+        fi
+        log_info "Machine type: ${mach}"
+    else
+        die "Installation cancelled by user"
     fi
 
-    VM_MEMORY="$ram_choice"
-}
-
-advanced_settings_disk() {
+    # DISK SIZE
     while true; do
-        local input
-        input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-            --title "Disk Size" \
-            --inputbox "Enter VM disk size in GB (minimum 12, default 12):\nExamples: 12, 20, 32, 50" \
-            10 60 "${VM_DISK_SIZE%G}" \
-            3>&1 1>&2 2>&3)
-        [[ $? -ne 0 ]] && die "Installation cancelled by user"
-
-        # Strip any trailing G the user may have typed
-        input="${input//G/}"
-        input="${input// /}"
-
-        # Validate: must be a positive integer >= 12
-        if ! [[ "$input" =~ ^[0-9]+$ ]] || [[ "$input" -lt 12 ]]; then
+        local disk_input
+        if disk_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "DISK SIZE" \
+            --cancel-button "Exit-Script" \
+            --inputbox "Set Disk Size in GiB (e.g., 12, 20)" \
+            8 58 "${DISK_SIZE%G}" \
+            3>&1 1>&2 2>&3); then
+            disk_input="${disk_input// /}"
+            disk_input="${disk_input//G/}"
+            if [[ "$disk_input" =~ ^[0-9]+$ ]] && [[ "$disk_input" -ge 12 ]]; then
+                DISK_SIZE="${disk_input}G"
+                log_info "Disk size: ${DISK_SIZE}"
+                break
+            fi
             whiptail --backtitle "Proxmox VE Helper Scripts" \
-                --title "Invalid Disk Size" \
-                --msgbox "Disk size must be a number >= 12 GB." \
-                8 50
-            continue
+                --title "Invalid Input" \
+                --msgbox "Disk size must be a number >= 12 GiB." 8 50
+        else
+            die "Installation cancelled by user"
         fi
-
-        VM_DISK_SIZE="${input}G"
-        break
     done
-}
 
-advanced_settings() {
-    # VM Name
-    VM_NAME=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "VM Name" \
-        --inputbox "Enter a name for the VM:" \
-        10 60 "${VM_NAME}" \
-        3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+    # DISK CACHE
+    local cache_choice
+    if cache_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "DISK CACHE" \
+        --cancel-button "Exit-Script" \
+        --radiolist "Choose" \
+        10 58 2 \
+        "0" "None (Default)" ON \
+        "1" "Write Through"  OFF \
+        3>&1 1>&2 2>&3); then
+        if [[ "$cache_choice" == "1" ]]; then
+            DISK_CACHE="cache=writethrough,"
+            log_info "Disk cache: Write Through"
+        else
+            DISK_CACHE=""
+            log_info "Disk cache: None"
+        fi
+    else
+        die "Installation cancelled by user"
+    fi
 
-    # CPU cores
-    VM_CORES=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "CPU Cores" \
-        --menu "Number of vCPUs (default: 1):" \
-        12 50 4 \
-        "1" "1 vCPU (default)" \
-        "2" "2 vCPUs" \
-        "3" "3 vCPUs" \
-        "4" "4 vCPUs" \
-        3>&1 1>&2 2>&3)
-    [[ $? -ne 0 ]] && die "Installation cancelled by user"
+    # HOSTNAME
+    local hn_input
+    if hn_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "HOSTNAME" \
+        --cancel-button "Exit-Script" \
+        --inputbox "Set Hostname" \
+        8 58 "${HN}" \
+        3>&1 1>&2 2>&3); then
+        HN="${hn_input:-phev2mqtt}"
+        HN="${HN,,}"
+        HN="${HN// /}"
+        VM_NAME="$HN"
+        log_info "Hostname: ${HN}"
+    else
+        die "Installation cancelled by user"
+    fi
+
+    # CPU MODEL
+    local cpu_choice
+    if cpu_choice=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "CPU MODEL" \
+        --cancel-button "Exit-Script" \
+        --radiolist "Choose" \
+        10 58 2 \
+        "0" "KVM64 (Default)" ON \
+        "1" "Host"            OFF \
+        3>&1 1>&2 2>&3); then
+        if [[ "$cpu_choice" == "1" ]]; then
+            CPU_TYPE=" -cpu host"
+            log_info "CPU model: Host"
+        else
+            CPU_TYPE=""
+            log_info "CPU model: KVM64"
+        fi
+    else
+        die "Installation cancelled by user"
+    fi
+
+    # CORE COUNT
+    while true; do
+        local cores_input
+        if cores_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "CORE COUNT" \
+            --cancel-button "Exit-Script" \
+            --inputbox "Allocate CPU Cores" \
+            8 58 "${CORE_COUNT}" \
+            3>&1 1>&2 2>&3); then
+            if [[ "$cores_input" =~ ^[0-9]+$ ]] && [[ "$cores_input" -ge 1 ]]; then
+                CORE_COUNT="$cores_input"
+                log_info "CPU cores: ${CORE_COUNT}"
+                break
+            fi
+            whiptail --backtitle "Proxmox VE Helper Scripts" \
+                --title "Invalid Input" \
+                --msgbox "CPU cores must be a number >= 1." 8 50
+        else
+            die "Installation cancelled by user"
+        fi
+    done
 
     # RAM
-    advanced_settings_ram
+    while true; do
+        local ram_input
+        if ram_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "RAM" \
+            --cancel-button "Exit-Script" \
+            --inputbox "Allocate RAM in MiB" \
+            8 58 "${RAM_SIZE}" \
+            3>&1 1>&2 2>&3); then
+            if ! [[ "$ram_input" =~ ^[0-9]+$ ]] || [[ "$ram_input" -lt 512 ]]; then
+                whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "Invalid Input" \
+                    --msgbox "RAM must be a number >= 512 MiB." 8 50
+                continue
+            fi
+            if [[ "$ram_input" -lt 1024 ]]; then
+                if whiptail --backtitle "Proxmox VE Helper Scripts" \
+                    --title "RAM" \
+                    --yesno "⚠ ${ram_input}MiB is not recommended.\n\nGo back and re-select?" \
+                    --yes-button "Re-select" \
+                    --no-button "Continue anyway" \
+                    10 60; then
+                    continue
+                fi
+            fi
+            RAM_SIZE="$ram_input"
+            log_info "RAM: ${RAM_SIZE} MiB"
+            break
+        else
+            die "Installation cancelled by user"
+        fi
+    done
 
-    # Disk size
-    advanced_settings_disk
+    # BRIDGE
+    local brg_input
+    if brg_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "BRIDGE" \
+        --cancel-button "Exit-Script" \
+        --inputbox "Set a Bridge" \
+        8 58 "${BRG}" \
+        3>&1 1>&2 2>&3); then
+        BRG="${brg_input:-vmbr0}"
+        log_info "Bridge: ${BRG}"
+    else
+        die "Installation cancelled by user"
+    fi
+
+    # MAC ADDRESS
+    local mac_input
+    if mac_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "MAC ADDRESS" \
+        --cancel-button "Exit-Script" \
+        --inputbox "Set a MAC Address" \
+        8 58 "${GEN_MAC}" \
+        3>&1 1>&2 2>&3); then
+        MAC="${mac_input:-$GEN_MAC}"
+        log_info "MAC: ${MAC}"
+    else
+        die "Installation cancelled by user"
+    fi
+
+    # VLAN
+    local vlan_input
+    if vlan_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "VLAN" \
+        --cancel-button "Exit-Script" \
+        --inputbox "Set a Vlan (leave blank for default)" \
+        8 58 "" \
+        3>&1 1>&2 2>&3); then
+        if [[ -n "$vlan_input" ]]; then
+            VLAN=",tag=${vlan_input}"
+            log_info "VLAN: ${vlan_input}"
+        else
+            VLAN=""
+            log_info "VLAN: Default"
+        fi
+    else
+        die "Installation cancelled by user"
+    fi
+
+    # MTU SIZE
+    local mtu_input
+    if mtu_input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "MTU SIZE" \
+        --cancel-button "Exit-Script" \
+        --inputbox "Set Interface MTU Size (leave blank for default)" \
+        8 58 "" \
+        3>&1 1>&2 2>&3); then
+        if [[ -n "$mtu_input" ]]; then
+            MTU=",mtu=${mtu_input}"
+            log_info "MTU: ${mtu_input}"
+        else
+            MTU=""
+            log_info "MTU: Default"
+        fi
+    else
+        die "Installation cancelled by user"
+    fi
+
+    # START VM
+    if whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "START VIRTUAL MACHINE" \
+        --yesno "Start VM when completed?" \
+        10 58; then
+        START_VM="yes"
+        log_info "Start VM: yes"
+    else
+        START_VM="no"
+        log_info "Start VM: no"
+    fi
+
+    # ADVANCED SETTINGS COMPLETE — Do-Over loop
+    if ! whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "ADVANCED SETTINGS COMPLETE" \
+        --yesno "Ready to create a phev2mqtt VM?" \
+        --no-button "Do-Over" \
+        10 58; then
+        advanced_settings
+        return
+    fi
 }
 
 select_vmid() {
-    # Get suggested VMID using pvesh
+    # Only called in Simple mode — Advanced mode sets VMID internally
     local suggested_vmid
     suggested_vmid=$(pvesh get /cluster/nextid 2>/dev/null || echo "100")
-    
+
     while true; do
         local input
         input=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-            --title "VM ID Selection" \
-            --inputbox "Enter VM ID for phev2mqtt VM.\n\nSuggested (next available): ${suggested_vmid}" \
-            12 60 "${suggested_vmid}" 3>&1 1>&2 2>&3)
-        
-        # User cancelled
-        if [[ $? -ne 0 ]]; then
-            die "Installation cancelled by user"
-        fi
-        
-        # Validate input is numeric
+            --title "VIRTUAL MACHINE ID" \
+            --cancel-button "Exit-Script" \
+            --inputbox "Set Virtual Machine ID" \
+            8 58 "${suggested_vmid}" \
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && die "Installation cancelled by user"
+
         if ! [[ "$input" =~ ^[0-9]+$ ]]; then
             whiptail --backtitle "Proxmox VE Helper Scripts" \
-                --title "Invalid Input" --msgbox "VM ID must be a number." 8 50
+                --title "Invalid Input" \
+                --msgbox "VM ID must be a number." 8 50
             continue
         fi
-        
-        # Check if VMID is already in use by checking config files
-        if [[ -f "/etc/pve/qemu-server/${input}.conf" ]] || [[ -f "/etc/pve/lxc/${input}.conf" ]]; then
+        if pct status "$input" &>/dev/null || qm status "$input" &>/dev/null; then
             whiptail --backtitle "Proxmox VE Helper Scripts" \
-                --title "VMID In Use" --msgbox "VMID ${input} is already in use. Please choose a different ID." 8 60
+                --title "ID In Use" \
+                --msgbox "ID $input is already in use." 8 60
             continue
         fi
-        
         VMID="$input"
         log_info "Selected VMID: ${VMID}"
         break
@@ -272,33 +475,49 @@ select_vmid() {
 }
 
 select_storage() {
-    # Get available storage pools
-    local storage_list
-    storage_list=$(pvesm status -content images | awk 'NR>1 {printf "%s %s %s\n", $1, $2, "ON"}')
-    
-    if [[ -z "$storage_list" ]]; then
+    local storage_menu=()
+    local msg_max_length=0
+
+    while read -r line; do
+        local tag type free item offset
+        tag=$(echo "$line" | awk '{print $1}')
+        type=$(echo "$line" | awk '{printf "%-10s", $2}')
+        free=$(echo "$line" | numfmt --field 4-6 --from-unit=K \
+            --to=iec --format %.2f 2>/dev/null | \
+            awk '{printf("%9sB", $6)}' 2>/dev/null || echo "       ?B")
+        item="  Type: ${type} Free: ${free} "
+        offset=2
+        if [[ $((${#item} + offset)) -gt ${msg_max_length} ]]; then
+            msg_max_length=$((${#item} + offset))
+        fi
+        storage_menu+=("$tag" "$item" "OFF")
+    done < <(pvesm status -content images | awk 'NR>1')
+
+    if [[ ${#storage_menu[@]} -eq 0 ]]; then
         die "No storage pools available for VM images"
     fi
-    
-    local storage_menu=()
-    while IFS= read -r line; do
-        local name type status
-        name=$(echo "$line" | awk '{print $1}')
-        type=$(echo "$line" | awk '{print $2}')
-        storage_menu+=("$name" "$type")
-    done <<<"$storage_list"
-    
-    STORAGE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "Storage Pool Selection" \
-        --menu "Select storage pool for VM disk:" \
-        18 70 10 \
-        "${storage_menu[@]}" \
-        3>&1 1>&2 2>&3)
-    
-    if [[ $? -ne 0 || -z "$STORAGE" ]]; then
-        die "Installation cancelled by user"
+
+    # If only one storage, select it automatically
+    if [[ $((${#storage_menu[@]} / 3)) -eq 1 ]]; then
+        STORAGE="${storage_menu[0]}"
+        log_info "Selected storage: ${STORAGE} (only option)"
+        return
     fi
-    
+
+    # Pre-select first entry
+    storage_menu[2]="ON"
+
+    while [[ -z "${STORAGE}" ]]; do
+        STORAGE=$(whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Storage Pools" \
+            --radiolist \
+            "Which storage pool would you like to use for ${HN}?\nTo make a selection, use the Spacebar.\n" \
+            16 $((msg_max_length + 23)) 6 \
+            "${storage_menu[@]}" \
+            3>&1 1>&2 2>&3)
+        [[ $? -ne 0 ]] && die "Installation cancelled by user"
+    done
+
     log_info "Selected storage: ${STORAGE}"
 }
 
@@ -400,27 +619,6 @@ lookup_usb_driver() {
     log_info "Adapter info - Driver: ${USB_DRIVER}, Notes: ${USB_NOTES}"
 }
 
-show_confirmation() {
-    local summary="VM Configuration Summary:\n\n"
-    summary+="VM Name: ${VM_NAME}\n"
-    summary+="VM ID: ${VMID}\n"
-    summary+="Storage: ${STORAGE}\n"
-    summary+="CPU: ${VM_CORES} vCore(s)\n"
-    summary+="Memory: ${VM_MEMORY} MB\n"
-    summary+="Disk: ${VM_DISK_SIZE}\n"
-    summary+="OS: Debian 12 (Bookworm)\n\n"
-    summary+="USB Adapter:\n"
-    summary+="  ID: ${USB_ID}\n"
-    summary+="  Driver: ${USB_DRIVER}\n"
-    summary+="  Info: ${USB_NOTES}\n\n"
-    summary+="Proceed with installation?"
-    
-    if ! whiptail --backtitle "Proxmox VE Helper Scripts" \
-        --title "Confirmation" --yesno "$summary" 22 70; then
-        die "Installation cancelled by user"
-    fi
-}
-
 # ============================================================================
 # VM Creation Functions
 # ============================================================================
@@ -450,89 +648,126 @@ download_debian_image() {
     echo "$image_file"
 }
 
+show_confirmation() {
+    # Only called in Simple mode
+    local machine_display="i440fx"
+    [[ -n "$VM_MACHINE_TYPE" ]] && machine_display="q35"
+
+    local summary="VM Configuration Summary:\n\n"
+    summary+="Hostname: ${HN}\n"
+    summary+="VM ID: ${VMID}\n"
+    summary+="Storage: ${STORAGE}\n"
+    summary+="CPU Model: KVM64\n"
+    summary+="CPU Cores: ${CORE_COUNT}\n"
+    summary+="Memory: ${RAM_SIZE} MiB\n"
+    summary+="Disk: ${DISK_SIZE}\n"
+    summary+="Machine: i440fx\n"
+    summary+="Bridge: ${BRG}\n"
+    summary+="MAC: ${MAC}\n"
+    summary+="OS: Debian 12 (Bookworm)\n\n"
+    summary+="USB Adapter:\n"
+    summary+="  ID: ${USB_ID}\n"
+    summary+="  Driver: ${USB_DRIVER}\n\n"
+    summary+="Proceed with installation?"
+
+    if ! whiptail --backtitle "Proxmox VE Helper Scripts" \
+        --title "Debian 12 VM" \
+        --yesno "$summary" 26 70; then
+        die "Installation cancelled by user"
+    fi
+}
+
 create_vm() {
     log_info "Creating VM ${VMID}..."
-    
-    # Download Debian image
+
     local image_file
     image_file=$(download_debian_image)
-    
-    # Mark that we've created a VM (for cleanup on error)
     CREATED_VMID="$VMID"
-    
-    # Create VM
-    qm create "$VMID" \
-        --name "${VM_NAME}" \
-        --cores "$VM_CORES" \
-        --memory "$VM_MEMORY" \
-        --net0 "virtio,bridge=vmbr0" \
-        --ostype "$VM_OS_TYPE" \
-        --scsihw "virtio-scsi-pci" \
-        || die "Failed to create VM"
-    
+
+    # Detect storage type and set disk format accordingly
+    local storage_type
+    storage_type=$(pvesm status -storage "$STORAGE" | awk 'NR>1 {print $2}')
+    case "$storage_type" in
+        nfs|dir)
+            DISK_EXT=".qcow2"
+            DISK_REF="${VMID}/"
+            DISK_IMPORT="-format qcow2"
+            THIN=""
+            ;;
+        btrfs)
+            DISK_EXT=".raw"
+            DISK_REF="${VMID}/"
+            DISK_IMPORT="-format raw"
+            THIN=""
+            ;;
+        *)
+            DISK_EXT=""
+            DISK_REF=""
+            DISK_IMPORT="-format raw"
+            ;;
+    esac
+
+    local DISK0="vm-${VMID}-disk-0${DISK_EXT}"
+    local DISK1="vm-${VMID}-disk-1${DISK_EXT}"
+    local DISK0_REF="${STORAGE}:${DISK_REF}${DISK0}"
+    local DISK1_REF="${STORAGE}:${DISK_REF}${DISK1}"
+
     log_info "Importing disk image..."
-    
-    # Import disk and capture output to extract actual disk path
-    local import_output
-    import_output=$(qm importdisk "$VMID" "$image_file" "$STORAGE" 2>&1) \
-      || die "Failed to import disk: ${import_output}"
-    local imported_disk
-    imported_disk=$(echo "$import_output" | grep -oP "[a-zA-Z0-9_\-]+:vm-${VMID}-disk-[0-9]+" | tail -n1)
-    if [[ -z "$imported_disk" ]]; then
-      die "Could not determine imported disk path. Import output: ${import_output}"
-    fi
-    log_info "Imported disk: ${imported_disk}"
-    
-    log_info "Configuring VM hardware..."
-    
-    # Attach disk
+    qm create "$VMID" \
+        -agent 1 \
+        ${VM_MACHINE_TYPE} \
+        -tablet 0 \
+        -localtime 1 \
+        -bios ovmf \
+        ${CPU_TYPE} \
+        -cores "$CORE_COUNT" \
+        -memory "$RAM_SIZE" \
+        -name "$HN" \
+        -net0 "virtio,bridge=${BRG},macaddr=${MAC},firewall=0${VLAN}${MTU}" \
+        -onboot 1 \
+        -ostype l26 \
+        -scsihw virtio-scsi-pci \
+        || die "Failed to create VM"
+
+    pvesm alloc "$STORAGE" "$VMID" "$DISK0" 4M 1>/dev/null \
+        || die "Failed to allocate EFI disk"
+
+    qm importdisk "$VMID" "$image_file" "$STORAGE" ${DISK_IMPORT} \
+        1>/dev/null || die "Failed to import disk"
+
     qm set "$VMID" \
-        --scsi0 "${imported_disk}" \
-        --boot "order=scsi0" \
-        --serial0 socket \
-        --vga serial0 \
-        || die "Failed to configure VM disk"
-    
-    # Resize disk
-    qm resize "$VMID" scsi0 "$VM_DISK_SIZE" \
+        -efidisk0 "${DISK0_REF},efitype=4m" \
+        -scsi0 "${DISK1_REF},${DISK_CACHE}${THIN}size=${DISK_SIZE}" \
+        -ide2 "${STORAGE}:cloudinit" \
+        -boot order=scsi0 \
+        -serial0 socket \
+        -ciuser root \
+        -ipconfig0 "ip=dhcp" \
+        || die "Failed to configure VM"
+
+    log_info "Resizing disk to ${DISK_SIZE}..."
+    qm resize "$VMID" scsi0 "${DISK_SIZE}" 1>/dev/null \
         || die "Failed to resize disk"
-    
-    log_info "Configuring cloud-init..."
-    
-    # Add cloud-init drive
-    qm set "$VMID" \
-        --ide2 "${STORAGE}:cloudinit" \
-        --ciuser "root" \
-        --ipconfig0 "ip=dhcp" \
-        || die "Failed to configure cloud-init"
-    
-    # Download and configure vm-setup.sh via cloud-init custom script
-    local vm_setup_script="${TEMP_DIR}/vm-setup.sh"
+
     log_info "Downloading VM setup script..."
-    
+    local vm_setup_script="${TEMP_DIR}/vm-setup.sh"
     if ! curl -fsSL "$VM_SETUP_URL" -o "$vm_setup_script"; then
         die "Failed to download VM setup script"
     fi
-    
-    # Create snippets directory if it doesn't exist
+
     local snippets_dir="/var/lib/vz/snippets"
     mkdir -p "$snippets_dir"
-    
-    # Copy vm-setup.sh to snippets
     local snippet_file="${snippets_dir}/phev2mqtt-setup-${VMID}.sh"
     cp "$vm_setup_script" "$snippet_file"
     chmod +x "$snippet_file"
-    
-    # Configure cloud-init to run setup script
+
     qm set "$VMID" \
         --cicustom "user=local:snippets/phev2mqtt-setup-${VMID}.sh" \
-        || log_warn "Failed to set cloud-init custom script - VM may need manual setup"
-    
+        || log_warn "Failed to set cloud-init custom script" >&2
+
     log_info "Configuring USB passthrough..."
-    
-    # Configure USB passthrough
     configure_usb_passthrough
-    
+
     log_info "VM ${VMID} created successfully"
 }
 
@@ -551,51 +786,32 @@ configure_usb_passthrough() {
 }
 
 start_vm() {
+    if [[ "$START_VM" != "yes" ]]; then
+        whiptail --backtitle "Proxmox VE Helper Scripts" \
+            --title "Installation Complete!" \
+            --msgbox "✓ VM ${VMID} created successfully.\n\nStart VM manually when ready:\n  qm start ${VMID}\n\nThen find IP via Proxmox UI → VM ${VMID} → Summary → IPs\nWeb UI: http://<VM_IP>:8080 once first-boot completes (5-10 min)\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
+            18 78
+        CREATED_VMID=""
+        return
+    fi
+
     log_info "Starting VM ${VMID}..."
-    
     if ! qm start "$VMID"; then
         die "Failed to start VM"
     fi
-    
-    log_info "VM started successfully. Waiting for network..."
-    
-    # Wait for VM to get IP address (timeout after 60 seconds)
-    local timeout=60
-    local elapsed=0
-    local vm_ip=""
-    
-    while [[ $elapsed -lt $timeout ]]; do
-        vm_ip=$(qm guest cmd "$VMID" network-get-interfaces 2>/dev/null | \
-            grep -oP '(?<="ip-address":")[0-9.]+' | \
-            grep -v '127.0.0.1' | head -n1 || true)
-        
-        if [[ -n "$vm_ip" ]]; then
-            break
-        fi
-        
-        sleep 2
-        ((elapsed += 2))
-    done
-    
-    if [[ -z "$vm_ip" ]]; then
-        log_warn "Could not detect VM IP address automatically"
-        vm_ip="<check Proxmox console>"
-    fi
-    
-    # Installation complete
+    log_info "VM started. First-boot setup will take 5-10 minutes."
+
     whiptail --backtitle "Proxmox VE Helper Scripts" \
         --title "Installation Complete!" \
-        --msgbox "✓ VM ${VMID} created and started successfully!\n\nVM IP: ${vm_ip}\nWeb UI: http://${vm_ip}:8080\n\nThe VM is now performing first-boot setup (installing drivers, building phev2mqtt). This may take 5-10 minutes.\n\nOnce ready, open the web UI in your browser to:\n1. Set your web UI password\n2. Configure WiFi connection to your car\n3. Configure MQTT broker connection\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
+        --msgbox "✓ VM ${VMID} created and started successfully!\n\nThe VM is performing first-boot setup (installing drivers,\nbuilding phev2mqtt). This takes 5-10 minutes.\n\nTo find your VM's IP once setup completes:\n  Proxmox UI → VM ${VMID} → Summary → IPs\n  or: qm guest cmd ${VMID} network-get-interfaces\n\nWeb UI: http://<VM_IP>:8080\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
         20 78
-    
+
     log_info "================================================================"
     log_info "Installation complete!"
     log_info "VM ID: ${VMID}"
-    log_info "VM IP: ${vm_ip}"
-    log_info "Web UI: http://${vm_ip}:8080"
+    log_info "Find VM IP: Proxmox UI → VM ${VMID} → Summary → IPs"
+    log_info "Web UI: http://<VM_IP>:8080 (ready in 5-10 min)"
     log_info "================================================================"
-    
-    # Clear CREATED_VMID so cleanup doesn't destroy the successfully created VM
     CREATED_VMID=""
 }
 
@@ -606,34 +822,40 @@ start_vm() {
 main() {
     log_info "phev2mqtt Proxmox Installer v${SCRIPT_VERSION}"
     log_info "================================================================"
-    
-    # Pre-flight checks
+
     check_root
     check_proxmox
     check_dependencies
     check_snippets_storage
-    
-    # Create temp directory
+
     TEMP_DIR=$(mktemp -d)
     log_info "Temp directory: ${TEMP_DIR}"
-    
-    # Interactive dialogs
+
     show_welcome
     select_mode
-    
+
     if [[ "$MODE" == "Advanced" ]]; then
         advanced_settings
+        # VMID already set inside advanced_settings
+        select_storage
+    else
+        default_settings
+        select_vmid
+        select_storage
     fi
-    
-    select_vmid
-    select_storage
+
+    # USB adapter always shown in both modes
     select_usb_adapter
-    show_confirmation
-    
-    # VM creation
+
+    # Simple mode gets explicit confirmation dialog
+    # Advanced mode already confirmed via Do-Over dialog
+    if [[ "$MODE" == "Simple" ]]; then
+        show_confirmation
+    fi
+
     create_vm
     start_vm
-    
+
     log_info "Done!"
 }
 
