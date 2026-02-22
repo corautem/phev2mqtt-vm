@@ -10,7 +10,7 @@ from typing import Any, Callable, TypeVar
 import bcrypt
 from flask import Flask, redirect, session, url_for
 
-from .config import get_secret, is_configured, set_secret
+from config import get_secret, is_configured, set_secret
 
 T = TypeVar("T", bound=Callable[..., Any])
 
