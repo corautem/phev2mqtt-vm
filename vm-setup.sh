@@ -372,7 +372,9 @@ step_install_webui() {
         die "requirements.txt not found at ${WEBUI_DIR}/requirements.txt"
     fi
     "${WEBUI_DIR}/venv/bin/pip" install --quiet --upgrade pip
-    "${WEBUI_DIR}/venv/bin/pip" install -r "${WEBUI_DIR}/requirements.txt" \
+    export TMPDIR=/tmp
+    mkdir -p /tmp
+    "${WEBUI_DIR}/venv/bin/pip" install --no-cache-dir -r "${WEBUI_DIR}/requirements.txt" \
         || die "Failed to install Python dependencies"
     
     # Set permissions
@@ -403,10 +405,10 @@ step_configure_journald() {
 # journald limits for phev2mqtt
 
 [Journal]
-SystemMaxUse=200MB
-SystemMaxFileSize=50MB
+SystemMaxUse=200M
+SystemMaxFileSize=50M
 MaxRetentionSec=7day
-SystemKeepFree=500MB
+SystemKeepFree=500M
 EOF
     fi
     
