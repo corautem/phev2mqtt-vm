@@ -54,11 +54,10 @@ def generate_key() -> None:
 
 
 def _load_key() -> bytes:
-    """Load the encryption key or raise if it is missing."""
+    """Load the encryption key, generating it if it does not exist."""
+    # Auto-generate key on first startup
     if not os.path.exists(KEY_PATH):
-        raise RuntimeError(
-            "Missing secret.key at /etc/phev2mqtt-webui/secret.key"
-        )
+        generate_key()
 
     with open(KEY_PATH, "rb") as key_file:
         return key_file.read().strip()
