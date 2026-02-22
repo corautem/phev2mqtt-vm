@@ -920,6 +920,8 @@ main() {
     create_vm
     start_vm
     rm -f /var/lib/vz/snippets/phev2mqtt-*${VMID}.sh 2>/dev/null || true
+    log_info "Removing cloud-init cicustom reference to prevent boot failures..."
+    qm set "${VMID}" --delete cicustom 2>/dev/null || true
 
     log_info "Done!"
 }
