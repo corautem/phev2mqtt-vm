@@ -807,9 +807,6 @@ create_vm() {
         -scsi0 "${DISK1_REF},${DISK_CACHE}${THIN}size=${DISK_SIZE}" \
         -boot order=scsi0 \
         -serial0 socket \
-        -ciuser debian \
-        -cipassword "${SSH_PASSWORD}" \
-        -ipconfig0 "ip=dhcp" \
         || die "Failed to configure VM"
 
     log_info "Resizing disk to ${DISK_SIZE}..."
