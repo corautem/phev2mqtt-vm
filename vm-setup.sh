@@ -362,6 +362,13 @@ step_install_webui() {
         rm -rf /tmp/phev2mqtt-webui.tar.gz "$extracted_dir"
     fi
     
+    # Ensure PATH and environment are set for cloud-init restricted context
+    export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    export TMPDIR=/var/tmp
+    export HOME=/root
+    export XDG_CACHE_HOME=/var/tmp/pip-cache
+    mkdir -p /var/tmp /root /var/tmp/pip-cache
+
     # Create Python virtual environment
     log_info "Creating Python virtual environment..."
     python3 -m venv "${WEBUI_DIR}/venv" || die "Failed to create virtual environment"
@@ -371,10 +378,6 @@ step_install_webui() {
     if [[ ! -f "${WEBUI_DIR}/requirements.txt" ]]; then
         die "requirements.txt not found at ${WEBUI_DIR}/requirements.txt"
     fi
-    export TMPDIR=/var/tmp
-    export HOME=/root
-    export XDG_CACHE_HOME=/var/tmp/pip-cache
-    mkdir -p /var/tmp /root /var/tmp/pip-cache
     "${WEBUI_DIR}/venv/bin/pip" install --no-cache-dir --upgrade pip
     "${WEBUI_DIR}/venv/bin/pip" install --no-cache-dir -r "${WEBUI_DIR}/requirements.txt" \
         || die "Failed to install Python dependencies"
