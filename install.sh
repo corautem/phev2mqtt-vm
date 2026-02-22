@@ -16,7 +16,6 @@ set -euo pipefail
 SCRIPT_VERSION="1.0.0"
 REPO_RAW_BASE="https://raw.githubusercontent.com/corautem/phev2mqtt-vm/main"
 ADAPTERS_URL="${REPO_RAW_BASE}/adapters.txt"
-VM_SETUP_URL="${REPO_RAW_BASE}/vm-setup.sh"
 
 DEBIAN_IMAGE_URL="https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2"
 DEBIAN_IMAGE_CHECKSUM_URL="https://cloud.debian.org/images/cloud/bookworm/latest/SHA512SUMS"
@@ -85,7 +84,6 @@ cleanup() {
         log_error "Installation failed. Cleaning up VM ${CREATED_VMID}..."
         qm destroy "${CREATED_VMID}" 2>/dev/null || true
     fi
-    rm -f /var/lib/vz/snippets/phev2mqtt-*${CREATED_VMID:-}.sh 2>/dev/null || true
 }
 
 trap cleanup EXIT
@@ -108,30 +106,24 @@ check_proxmox() {
 }
 
 check_dependencies() {
-    local deps=(whiptail curl lsusb wget numfmt)
+    local deps=(whiptail curl lsusb wget numfmt virt-customize)
     local missing=()
     
     for cmd in "${deps[@]}"; do
         if ! command -v "$cmd" &>/dev/null; then
-            missing+=("$cmd")
+            # Special handling for virt-customize — try to install libguestfs-tools
+            if [[ "$cmd" == "virt-customize" ]]; then
+                log_info "Installing libguestfs-tools..."
+                apt-get -qq update
+                apt-get -qq install -y libguestfs-tools || missing+=("libguestfs-tools")
+            else
+                missing+=("$cmd")
+            fi
         fi
     done
     
     if [[ ${#missing[@]} -gt 0 ]]; then
         die "Missing required commands: ${missing[*]}"
-    fi
-}
-
-check_snippets_storage() {
-    # Check if local storage has snippets content type enabled
-    if ! pvesm status --content snippets | grep -q "^local "; then
-        die "Snippets must be enabled on local storage — the installer uses this to pass the VM setup script to the VM via cloud-init.
-
-To fix this:
-  Proxmox UI → Datacenter → Storage → local → Edit
-  → Content → tick 'Snippets' → click OK
-
-Then re-run the installer."
     fi
 }
 
@@ -698,6 +690,27 @@ download_debian_image() {
     echo "$image_file"
 }
 
+customize_image() {
+    local image_file="$1"
+    local ssh_password="$2"
+    
+    log_info "Customizing disk image with virt-customize..."
+    
+    virt-customize -a "$image_file" \
+        --install "git,build-essential,curl,wget,usbutils,dkms,bc,python3,python3-pip,python3-venv,qemu-guest-agent,openssh-server,linux-headers-generic" \
+        --run-command "go_version=\$(curl -fsSL https://go.dev/VERSION?m=text | head -1) && wget -q \"https://go.dev/dl/\${go_version}.linux-amd64.tar.gz\" -O /tmp/go.tar.gz && rm -rf /usr/local/go && tar -C /usr/local -xzf /tmp/go.tar.gz && rm /tmp/go.tar.gz && echo 'export PATH=\$PATH:/usr/local/go/bin' > /etc/profile.d/go.sh" \
+        --run-command "export PATH=\$PATH:/usr/local/go/bin && export GOPATH=/root/go && export GOMODCACHE=/root/go/pkg/mod && export GOCACHE=/root/.cache/go-build && mkdir -p /root/go /root/go/pkg/mod /root/.cache/go-build && git clone https://github.com/buxtronix/phev2mqtt.git /tmp/phev2mqtt-build && cd /tmp/phev2mqtt-build && /usr/local/go/bin/go build -o /usr/local/bin/phev2mqtt && chmod +x /usr/local/bin/phev2mqtt && rm -rf /tmp/phev2mqtt-build" \
+        --run-command "mkdir -p /opt/phev2mqtt-webui /etc/phev2mqtt-webui /var/log/phev2mqtt-webui && wget -q https://github.com/corautem/phev2mqtt-vm/archive/refs/heads/main.tar.gz -O /tmp/phev2mqtt-vm.tar.gz && tar -xzf /tmp/phev2mqtt-vm.tar.gz -C /tmp/ && cp -r /tmp/phev2mqtt-vm-main/webui/* /opt/phev2mqtt-webui/ && cp /tmp/phev2mqtt-vm-main/systemd/phev2mqtt-webui.service /etc/systemd/system/phev2mqtt-webui.service && cp /tmp/phev2mqtt-vm-main/systemd/phev2mqtt.service /etc/systemd/system/phev2mqtt.service && mkdir -p /etc/systemd/journald.conf.d && cp /tmp/phev2mqtt-vm-main/config/journald.conf /etc/systemd/journald.conf.d/phev2mqtt.conf && cp /tmp/phev2mqtt-vm-main/config/logrotate.phev2mqtt-webui /etc/logrotate.d/phev2mqtt-webui && rm -rf /tmp/phev2mqtt-vm.tar.gz /tmp/phev2mqtt-vm-main" \
+        --run-command "export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin && export HOME=/root && export TMPDIR=/var/tmp && export XDG_CACHE_HOME=/var/tmp/pip-cache && mkdir -p /var/tmp/pip-cache && python3 -m venv /opt/phev2mqtt-webui/venv && cd /opt/phev2mqtt-webui && ./venv/bin/python3 -m pip install --no-cache-dir -r /opt/phev2mqtt-webui/requirements.txt" \
+        --run-command "systemctl enable qemu-guest-agent && systemctl enable phev2mqtt-webui && systemctl enable ssh && sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config && sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config && touch /etc/phev2mqtt-webui/phev2mqtt.env && chmod 600 /etc/phev2mqtt-webui/phev2mqtt.env && chown -R root:root /opt/phev2mqtt-webui && chmod -R 755 /opt/phev2mqtt-webui && chmod 700 /etc/phev2mqtt-webui" \
+        --root-password "password:${ssh_password}" \
+        --hostname "${HN}" \
+        --run-command "echo -n > /etc/machine-id" \
+        || die "Image customization failed"
+    
+    log_info "Image customization complete"
+}
+
 show_confirmation() {
     # Only called in Simple mode
     local machine_display="i440fx"
@@ -734,6 +747,8 @@ create_vm() {
     local image_file
     image_file=$(download_debian_image)
     CREATED_VMID="$VMID"
+
+    customize_image "$image_file" "$SSH_PASSWORD"
 
     # Detect storage type and set disk format accordingly
     local storage_type
@@ -789,7 +804,6 @@ create_vm() {
     qm set "$VMID" \
         -efidisk0 "${DISK0_REF},efitype=4m" \
         -scsi0 "${DISK1_REF},${DISK_CACHE}${THIN}size=${DISK_SIZE}" \
-        -ide2 "${STORAGE}:cloudinit" \
         -boot order=scsi0 \
         -serial0 socket \
         -ciuser debian \
@@ -800,31 +814,6 @@ create_vm() {
     log_info "Resizing disk to ${DISK_SIZE}..."
     qm resize "$VMID" scsi0 "${DISK_SIZE}" 1>/dev/null \
         || die "Failed to resize disk"
-
-    log_info "Downloading VM setup script..."
-    local vm_setup_script="${TEMP_DIR}/vm-setup.sh"
-    if ! curl -fsSL "$VM_SETUP_URL" -o "$vm_setup_script"; then
-        die "Failed to download VM setup script"
-    fi
-
-    local snippets_dir="/var/lib/vz/snippets"
-    mkdir -p "$snippets_dir"
-    local snippet_file="${snippets_dir}/phev2mqtt-setup-${VMID}.sh"
-    cp "$vm_setup_script" "$snippet_file"
-    chmod +x "$snippet_file"
-
-    local root_pw_snippet="${snippets_dir}/phev2mqtt-rootpw-${VMID}.sh"
-    cat > "$root_pw_snippet" <<ROOTPW_EOF
-#!/bin/bash
-echo "root:${SSH_PASSWORD}" | chpasswd
-sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
-systemctl restart ssh 2>/dev/null || true
-ROOTPW_EOF
-    chmod +x "$root_pw_snippet"
-
-    qm set "$VMID" \
-        --cicustom "user=local:snippets/phev2mqtt-setup-${VMID}.sh,vendor=local:snippets/phev2mqtt-rootpw-${VMID}.sh" \
-        || log_warn "Failed to set cloud-init custom script" >&2
 
     log_info "Configuring USB passthrough..."
     configure_usb_passthrough
@@ -850,7 +839,7 @@ start_vm() {
     if [[ "$START_VM" != "yes" ]]; then
         whiptail --backtitle "Proxmox VE Helper Scripts" \
             --title "Installation Complete!" \
-            --msgbox "✓ VM ${VMID} created successfully.\n\nStart VM manually when ready:\n  qm start ${VMID}\n\nThen find IP via Proxmox UI → VM ${VMID} → Summary → IPs\nWeb UI: http://<VM_IP>:8080 once first-boot completes (5-10 min)\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
+            --msgbox "✓ VM ${VMID} created successfully.\n\nStart VM manually when ready:\n  qm start ${VMID}\n\nThen find IP via Proxmox UI → VM ${VMID} → Summary → IPs\nWeb UI: http://<VM_IP>:8080 (ready immediately after boot)\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
             18 78
         CREATED_VMID=""
         return
@@ -860,18 +849,18 @@ start_vm() {
     if ! qm start "$VMID"; then
         die "Failed to start VM"
     fi
-    log_info "VM started. First-boot setup will take 5-10 minutes."
+    log_info "VM started."
 
     whiptail --backtitle "Proxmox VE Helper Scripts" \
         --title "Installation Complete!" \
-        --msgbox "✓ VM ${VMID} created and started successfully!\n\nThe VM is performing first-boot setup (installing drivers,\nbuilding phev2mqtt). This takes 5-10 minutes.\n\nTo find your VM's IP once setup completes:\n  Proxmox UI → VM ${VMID} → Summary → IPs\n  or: qm guest cmd ${VMID} network-get-interfaces\n\nWeb UI: http://<VM_IP>:8080\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
-        20 78
+        --msgbox "✓ VM ${VMID} created and started successfully!\n\nThe VM is fully configured and the web UI is ready to use.\n\nTo find your VM's IP:\n  Proxmox UI → VM ${VMID} → Summary → IPs\n  or: qm guest cmd ${VMID} network-get-interfaces\n\nWeb UI: http://<VM_IP>:8080 (available immediately)\n\nDocumentation: ${REPO_RAW_BASE}/README.md" \
+        18 78
 
     log_info "================================================================"
     log_info "Installation complete!"
     log_info "VM ID: ${VMID}"
     log_info "Find VM IP: Proxmox UI → VM ${VMID} → Summary → IPs"
-    log_info "Web UI: http://<VM_IP>:8080 (ready in 5-10 min)"
+    log_info "Web UI: http://<VM_IP>:8080 (ready now)"
     log_info "================================================================"
     CREATED_VMID=""
 }
@@ -887,7 +876,6 @@ main() {
     check_root
     check_proxmox
     check_dependencies
-    check_snippets_storage
 
     TEMP_DIR=$(mktemp -d)
     log_info "Temp directory: ${TEMP_DIR}"
@@ -919,25 +907,6 @@ main() {
 
     create_vm
     start_vm
-    if [[ "$START_VM" == "yes" ]]; then
-        log_info "Waiting for cloud-init to complete before cleaning up snippets..."
-        local timeout=600
-        local elapsed=0
-        while [[ $elapsed -lt $timeout ]]; do
-            if qm guest cmd "${VMID}" ping &>/dev/null 2>&1; then
-                local ci_status
-                ci_status=$(qm guest exec "${VMID}" -- cloud-init status 2>/dev/null | grep -o '"out-data":"[^"]*"' | grep -o 'status:[^\\]*' | head -1 || true)
-                if [[ "$ci_status" == *"done"* || "$ci_status" == *"error"* ]]; then
-                    break
-                fi
-            fi
-            sleep 10
-            elapsed=$((elapsed + 10))
-        done
-        log_info "Cleaning up snippets and cicustom reference..."
-        rm -f /var/lib/vz/snippets/phev2mqtt-*${VMID}.sh 2>/dev/null || true
-        qm set "${VMID}" --delete cicustom 2>/dev/null || true
-    fi
 
     log_info "Done!"
 }
