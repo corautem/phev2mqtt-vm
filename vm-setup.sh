@@ -378,8 +378,8 @@ step_install_webui() {
     if [[ ! -f "${WEBUI_DIR}/requirements.txt" ]]; then
         die "requirements.txt not found at ${WEBUI_DIR}/requirements.txt"
     fi
-    "${WEBUI_DIR}/venv/bin/pip" install --no-cache-dir --upgrade pip
-    "${WEBUI_DIR}/venv/bin/pip" install --no-cache-dir -r "${WEBUI_DIR}/requirements.txt" \
+    "${WEBUI_DIR}/venv/bin/python3" -m pip install --no-cache-dir --upgrade pip
+    "${WEBUI_DIR}/venv/bin/python3" -m pip install --no-cache-dir -r "${WEBUI_DIR}/requirements.txt" \
         || die "Failed to install Python dependencies"
     
     # Set permissions
