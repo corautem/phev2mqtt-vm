@@ -6,7 +6,7 @@ import threading
 import time
 from typing import Optional
 
-import mqtt
+from services import mqtt
 
 
 _lock = threading.Lock()
