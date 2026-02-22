@@ -85,6 +85,7 @@ cleanup() {
         log_error "Installation failed. Cleaning up VM ${CREATED_VMID}..."
         qm destroy "${CREATED_VMID}" 2>/dev/null || true
     fi
+    rm -f /var/lib/vz/snippets/phev2mqtt-*${CREATED_VMID:-}.sh 2>/dev/null || true
 }
 
 trap cleanup EXIT
@@ -918,6 +919,7 @@ main() {
 
     create_vm
     start_vm
+    rm -f /var/lib/vz/snippets/phev2mqtt-*${VMID}.sh 2>/dev/null || true
 
     log_info "Done!"
 }
