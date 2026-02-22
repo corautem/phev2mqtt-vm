@@ -15,3 +15,6 @@ paho-mqtt==2.1.0
 
 # Encrypt sensitive config values at rest.
 cryptography==42.0.8
+
+# System resource monitoring (disk, CPU, RAM).
+psutil==6.0.0
