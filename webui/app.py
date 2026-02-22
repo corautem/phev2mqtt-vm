@@ -31,13 +31,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = secrets.token_hex(32)
-app.config.update(
-    SESSION_COOKIE_HTTPONLY=True,
-    SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=False,
-    SESSION_PERMANENT=False,
-)
+# Configure session with auth module (must be called before registering routes)
+auth.configure_session(app)
 
 # Register the API blueprint
 app.register_blueprint(api)
@@ -76,18 +71,41 @@ def setup_submit() -> ResponseReturnValue:
     """Handle first-run password submission."""
     with _setup_lock:
         if config.is_configured():
+            logger.warning("Setup POST rejected: already configured")
             flash("Setup already completed")
             return redirect(url_for("login"))
 
         password = request.form.get("password", "")
-        if len(password) < 8:
+        confirm_password = request.form.get("confirm_password", "")
+        acknowledged = request.form.get(
+            "acknowledge", "").lower() in ("on", "true", "1")
+
+        # Validate password field
+        if not password or len(password) < 8:
+            logger.warning("Setup POST rejected: password < 8 chars")
             flash("Password must be at least 8 characters")
             return render_template("first_run.html"), 400
 
+        # Validate confirmation password
+        if password != confirm_password:
+            logger.warning("Setup POST rejected: passwords do not match")
+            flash("Passwords do not match")
+            return render_template("first_run.html"), 400
+
+        # Validate acknowledgement checkbox
+        if not acknowledged:
+            logger.warning("Setup POST rejected: acknowledgement not checked")
+            flash("You must acknowledge the password recovery warning")
+            return render_template("first_run.html"), 400
+
         if not auth.complete_first_run(password):
+            logger.warning(
+                "Setup POST rejected: complete_first_run returned False")
             flash("Setup already completed")
             return redirect(url_for("login"))
 
+        logger.info(
+            "Setup completed successfully, setting session and redirecting to /settings")
         session["authenticated"] = True
         return redirect(url_for("settings"))
 
