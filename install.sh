@@ -919,9 +919,25 @@ main() {
 
     create_vm
     start_vm
-    rm -f /var/lib/vz/snippets/phev2mqtt-*${VMID}.sh 2>/dev/null || true
-    log_info "Removing cloud-init cicustom reference to prevent boot failures..."
-    qm set "${VMID}" --delete cicustom 2>/dev/null || true
+    if [[ "$START_VM" == "yes" ]]; then
+        log_info "Waiting for cloud-init to complete before cleaning up snippets..."
+        local timeout=600
+        local elapsed=0
+        while [[ $elapsed -lt $timeout ]]; do
+            if qm guest cmd "${VMID}" ping &>/dev/null 2>&1; then
+                local ci_status
+                ci_status=$(qm guest exec "${VMID}" -- cloud-init status 2>/dev/null | grep -o '"out-data":"[^"]*"' | grep -o 'status:[^\\]*' | head -1 || true)
+                if [[ "$ci_status" == *"done"* || "$ci_status" == *"error"* ]]; then
+                    break
+                fi
+            fi
+            sleep 10
+            elapsed=$((elapsed + 10))
+        done
+        log_info "Cleaning up snippets and cicustom reference..."
+        rm -f /var/lib/vz/snippets/phev2mqtt-*${VMID}.sh 2>/dev/null || true
+        qm set "${VMID}" --delete cicustom 2>/dev/null || true
+    fi
 
     log_info "Done!"
 }
