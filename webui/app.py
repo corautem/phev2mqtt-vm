@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import secrets
 import threading
 from typing import Any
@@ -21,6 +22,13 @@ import config
 import auth
 from routes.api import api
 from routes.terminal import init_sock
+
+# Configure logging to output to stderr for systemd capture
+logging.basicConfig(
+    level=logging.INFO,
+    format="[%(asctime)s] %(levelname)s in %(name)s: %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)

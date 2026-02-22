@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import logging
 import secrets
 import threading
 from typing import Any, Callable, TypeVar
@@ -12,6 +13,7 @@ from flask import Flask, redirect, session, url_for
 
 from config import get_secret, is_configured, set_secret
 
+logger = logging.getLogger(__name__)
 T = TypeVar("T", bound=Callable[..., Any])
 
 _setup_lock = threading.Lock()
@@ -39,13 +41,20 @@ def complete_first_run(password: str) -> bool:
     # Prevent multiple browsers from completing setup simultaneously.
     with _setup_lock:
         if is_configured():
+            logger.warning("Setup already completed")
             return False
         if len(password) < 8:
+            logger.warning("Password too short (< 8 chars)")
             return False
 
-        hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
-        set_secret("webui_password", hashed.decode("utf-8"))
-        return True
+        try:
+            hashed = bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt())
+            set_secret("webui_password", hashed.decode("utf-8"))
+            logger.info("First-run password set successfully")
+            return True
+        except Exception as exc:
+            logger.error(f"Failed to set password: {exc}", exc_info=True)
+            return False
 
 
 def verify_password(plain: str) -> bool:

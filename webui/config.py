@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from typing import Any, Dict
 
 from cryptography.fernet import Fernet, InvalidToken
+
+logger = logging.getLogger(__name__)
 
 CONFIG_PATH = "/etc/phev2mqtt-webui/config.json"
 KEY_PATH = "/etc/phev2mqtt-webui/secret.key"
@@ -90,31 +93,36 @@ def load_config() -> Dict[str, Any]:
 
 def save_config(data: Dict[str, Any]) -> None:
     """Atomically write config.json after validating JSON content."""
-    _load_key()
-
-    config_dir = os.path.dirname(CONFIG_PATH)
-    os.makedirs(config_dir, exist_ok=True)
-
-    data = data.copy()
-    data["emulator_enabled"] = False
-    data.setdefault("secrets", {})
-
-    fd, tmp_path = tempfile.mkstemp(prefix="config.", dir=config_dir)
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
-            json.dump(data, tmp_file, indent=2, sort_keys=True)
-            tmp_file.flush()
-            os.fsync(tmp_file.fileno())
+        _load_key()
 
-        with open(tmp_path, "r", encoding="utf-8") as verify_file:
-            json.load(verify_file)
+        config_dir = os.path.dirname(CONFIG_PATH)
+        os.makedirs(config_dir, exist_ok=True)
 
-        os.replace(tmp_path, CONFIG_PATH)
-    finally:
-        # os.replace() removes tmp_path on success,
-        # so only unlink if it still exists (i.e. on error).
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
+        data = data.copy()
+        data["emulator_enabled"] = False
+        data.setdefault("secrets", {})
+
+        fd, tmp_path = tempfile.mkstemp(prefix="config.", dir=config_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp_file:
+                json.dump(data, tmp_file, indent=2, sort_keys=True)
+                tmp_file.flush()
+                os.fsync(tmp_file.fileno())
+
+            with open(tmp_path, "r", encoding="utf-8") as verify_file:
+                json.load(verify_file)
+
+            os.replace(tmp_path, CONFIG_PATH)
+            logger.info(f"Config saved successfully to {CONFIG_PATH}")
+        finally:
+            # os.replace() removes tmp_path on success,
+            # so only unlink if it still exists (i.e. on error).
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+    except Exception as exc:
+        logger.error(f"Failed to save config: {exc}", exc_info=True)
+        raise
 
 
 def get_secret(key: str) -> str:
